@@ -1,0 +1,5 @@
+{
+  "backendMode": "cloud",
+  "cloudPublicApiBase": "https://api.keygent.xyz",
+  "cloudAdminApiBase": "https://admin-api.keygent.xyz"
+}

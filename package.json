@@ -1,0 +1,30 @@
+{
+  "name": "piano-tutor",
+  "private": true,
+  "scripts": {
+    "install:all": "cd frontend && npm install",
+    "backend": "py -m uvicorn backend.app:app --port 8000",
+    "backend:public": "py -m uvicorn backend.app:public_app --port 8765",
+    "backend:admin": "py -m uvicorn backend.app:admin_app --port 8766",
+    "backend:split": "concurrently -n public,admin -c blue,magenta \"npm run backend:public\" \"npm run backend:admin\"",
+    "backend:kill-ports": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ports=@(8765,8766); foreach($p in $ports){ $pids=(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach($pid in $pids){ Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } }\"",
+    "backend:split:clean": "npm run backend:kill-ports && npm run backend:split",
+    "frontend": "cd frontend && npm run dev",
+    "frontend:user": "set VITE_DEV_PORT=5173&& set VITE_API_PROXY_TARGET=http://127.0.0.1:8765&& set VITE_ADMIN_API_BASE=http://127.0.0.1:8766&& cd frontend && npm run dev -- --open /",
+    "frontend:admin": "set VITE_DEV_PORT=5174&& set VITE_API_PROXY_TARGET=http://127.0.0.1:8765&& set VITE_ADMIN_API_BASE=http://127.0.0.1:8766&& cd frontend && npm run dev -- --open /admin.html",
+    "frontend:user:cloud": "set VITE_DEV_PORT=5173&& set VITE_PUBLIC_API_BASE=https://api.keygent.xyz&& set VITE_ADMIN_API_BASE=https://admin-api.keygent.xyz&& cd frontend && npm run dev -- --open /",
+    "frontend:admin:cloud": "set VITE_DEV_PORT=5174&& set VITE_PUBLIC_API_BASE=https://api.keygent.xyz&& set VITE_ADMIN_API_BASE=https://admin-api.keygent.xyz&& cd frontend && npm run dev -- --open /admin.html",
+    "start": "concurrently -n backend,frontend -c blue,green \"npm run backend\" \"npm run frontend\"",
+    "beta:build-web": "npm run build --prefix frontend",
+    "beta:build-web:cloud": "cross-env VITE_PUBLIC_API_BASE=https://api.keygent.xyz VITE_ADMIN_API_BASE=https://admin-api.keygent.xyz VITE_ELECTRON_FILE=1 npm run build --prefix frontend",
+    "beta:desktop": "npm install --prefix desktop && npm start --prefix desktop",
+    "beta:desktop:fresh": "npm run beta:build-web && npm run beta:desktop",
+    "beta:bundle-backend": "py -m pip install -q -r backend/requirements.txt && py -m pip install -q pyinstaller && py -m PyInstaller --clean --noconfirm --distpath dist_py --workpath build_py desktop/pyinstaller/piano-backend.spec",
+    "beta:pack": "npm run beta:build-web && npm run beta:bundle-backend && npm install --prefix desktop && npm run dist --prefix desktop",
+    "beta:pack:cloud": "npm run beta:build-web:cloud && npm install --prefix desktop && npm run predist:cloud --prefix desktop && npm run dist:cloud --prefix desktop"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3"
+  }
+}
