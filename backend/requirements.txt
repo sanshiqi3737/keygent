@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+python-dotenv
+librosa
+numpy
+scipy
+pretty_midi
+dtw-python
+music21
+Pillow
+PyMuPDF
+# 多声部（高级）模式可选依赖，安装后可用和弦/双手检测：
+# piano_transcription_inference
+# torch

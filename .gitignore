@@ -1,0 +1,31 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+desktop/dist-out/
+desktop/node_modules/
+desktop/publisher.env
+desktop/_bundled_env/
+dist_py/
+build_py/
+
+# 多声部模型权重（体积大，勿提交；队友需自行放置或从网盘下载）
+*.pth
+
+# PyInstaller / 本地构建残留
+backend/build/
+backend/dist/
+
+# 本地用户数据（曲库、练习 SQLite、录音等），勿提交
+data/
+
+# 密钥 / 证书
+*.pem
+*.key
+
+# 系统杂项
+.DS_Store
+Thumbs.db

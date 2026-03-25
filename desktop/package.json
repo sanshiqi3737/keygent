@@ -1,0 +1,98 @@
+{
+  "name": "piano-tutor-desktop",
+  "version": "0.1.0-beta.1",
+  "description": "钢琴陪练 Beta 桌面壳（Electron）",
+  "main": "main.js",
+  "author": "Piano Tutor",
+  "private": true,
+  "dependencies": {
+    "semver": "^7.7.2"
+  },
+  "scripts": {
+    "start": "electron .",
+    "start:fresh": "npm run build --prefix ../frontend && electron .",
+    "prepare-bundled-env": "node scripts/prepare-bundled-env.js",
+    "predist": "node scripts/prepare-bundled-env.js && npm run build --prefix ../frontend",
+    "predist:cloud": "node scripts/prepare-bundled-env.js",
+    "dist": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder",
+    "dist:cloud": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config electron-builder.cloud.cjs",
+    "dist:dir": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
+    "dist:portable": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win portable",
+    "dist:installer": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.pianotutor.beta",
+    "productName": "Piano Tutor Beta",
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "directories": {
+      "output": "dist-out"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "update-check.js",
+      "update-config.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist_py/piano-backend",
+        "to": "piano/piano-backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "piano/frontend/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../.env.example",
+        "to": "piano/.env.example"
+      },
+      {
+        "from": "../desktop/update-config.json",
+        "to": "piano/update-config.json",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "_bundled_env",
+        "to": "piano",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "app-config.json",
+        "to": "piano/app-config.json"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

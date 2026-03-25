@@ -1,0 +1,6 @@
+{
+  "version": "0.1.0-beta.2",
+  "min_supported_version": "0.1.0-beta.1",
+  "downloadUrl": "https://example.com/releases/Piano-Tutor-Beta-0.1.0-beta.2.zip",
+  "notes": "· 修复若干问题\n· 优化启动速度"
+}
