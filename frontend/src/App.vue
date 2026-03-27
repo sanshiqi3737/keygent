@@ -1,220 +1,140 @@
 <template>
   <div class="app">
-    <header class="header">
-      <h1>钢琴陪练 · 标准乐谱</h1>
-      <p class="sub">上传 PDF + MusicXML，展示乐谱并与弹奏比对</p>
-      <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
-      <div class="nav-row">
-        <button type="button" class="btn small" @click="goApp">用户端</button>
-        <button
-          v-if="scoreId"
-          type="button"
-          class="btn small"
-          @click="goScore(scoreId)"
-        >
-          当前曲目页
+    <main v-if="!isAuthenticated" class="login-main">
+      <section class="login-card">
+        <img class="login-logo" src="/keygent-logo.png" alt="keygent logo" />
+        <h1 class="login-title">钢琴陪练</h1>
+        <p class="muted login-sub">登录后可进入首页并使用全部功能</p>
+        <div class="form-row">
+          <label>用户名</label>
+          <input
+            v-model="authAccountInput"
+            class="score-id-input login-input"
+            placeholder="请输入用户名"
+            maxlength="128"
+            @keyup.enter="doAuthEntry"
+          />
+          <p class="muted hint-line">至少 3 个字符</p>
+        </div>
+        <div class="form-row">
+          <label>密码</label>
+          <input
+            v-model="authPasswordInput"
+            class="score-id-input login-input"
+            type="password"
+            placeholder="请输入密码"
+            maxlength="128"
+            @keyup.enter="doAuthEntry"
+          />
+          <p class="muted hint-line">至少 6 个字符</p>
+        </div>
+        <button type="button" class="btn primary login-btn" :disabled="authLoading" @click="doAuthEntry">
+          {{ authLoading ? '处理中…' : '登录 / 注册' }}
         </button>
-        <span class="muted nav-tip">当前路由：{{ routePathLabel }}</span>
-      </div>
+        <p v-if="authError" class="error">{{ authError }}</p>
+      </section>
+    </main>
+
+    <template v-else>
+    <header class="header">
+      <h1>钢琴陪练 · keygent</h1>
+      <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
     </header>
 
     <main class="main">
-      <section v-if="routeMode === 'app' && (appTab === 'home' || appTab === 'profile')" class="card">
-        <h2>用户入口</h2>
-        <div class="inline-row">
-          <strong>当前账号：</strong>
-          <code>{{ currentAccount || '未登录' }}</code>
-          <strong style="margin-left: 1rem">用户ID：</strong>
-          <code>{{ currentUserId }}</code>
-          <span class="muted">（按账号隔离练习记录与助手记忆）</span>
-        </div>
-        <div class="inline-row" style="margin-top: 0.6rem; flex-wrap: wrap">
-          <input v-model="authAccountInput" class="score-id-input" placeholder="账号（建议邮箱）" />
-          <input v-model="authPasswordInput" class="score-id-input" type="password" placeholder="密码（至少6位）" />
-          <button type="button" class="btn small" :disabled="authLoading" @click="doLogin">
-            {{ authLoading ? '处理中…' : '登录' }}
-          </button>
-          <button type="button" class="btn small" :disabled="authLoading" @click="doRegister">
-            {{ authLoading ? '处理中…' : '注册' }}
-          </button>
-          <button type="button" class="btn small" :disabled="authLoading || !authToken" @click="doLogout">
+      <section v-if="routeMode === 'app' && appTab === 'profile'" class="card profile-header-card">
+        <div class="profile-topbar">
+          <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
+          <button type="button" class="btn small" :disabled="authLoading || !authToken" @click="doLogoutWithConfirm">
             退出登录
           </button>
         </div>
-        <p v-if="authError" class="error">{{ authError }}</p>
-      </section>
-
-      <section v-if="routeMode === 'app' && appTab === 'home'" class="card">
-        <h2>首页</h2>
-        <p class="muted small-margin">欢迎使用钢琴陪练。你可以从下方标签快速进入曲库、练习、助手和我的页面。</p>
-        <div class="inline-row">
-          <button type="button" class="btn small" @click="goAppTab('library')">去曲库</button>
-          <button type="button" class="btn small" @click="goAppTab('practice')">去练习</button>
-          <button type="button" class="btn small" @click="goAppTab('assistant')">去助手</button>
-          <button type="button" class="btn small" @click="goAppTab('profile')">去我的</button>
+        <h2>个人主页</h2>
+        <div class="profile-header">
+          <div class="profile-avatar" aria-label="默认头像">
+            <span class="profile-avatar-text">{{ (currentAccount || 'U').slice(0, 1).toUpperCase() }}</span>
+          </div>
+          <div class="profile-header-right">
+            <div class="profile-name">{{ currentAccount || '未登录' }}</div>
+          </div>
         </div>
       </section>
 
-      <section v-if="routeMode === 'app' && appTab === 'home'" class="card">
-        <h2>启动自检清单</h2>
-        <div class="inline-row" style="margin-bottom: 0.6rem">
-          <button type="button" class="btn small" :disabled="startupChecking" @click="runStartupChecklist">
-            {{ startupChecking ? '检查中…' : '重新检查' }}
-          </button>
-        </div>
-        <ul class="startup-check-list">
-          <li>
-            <strong>后端连接</strong>
-            <span :class="startupStatus.backendOk ? 'success' : 'error'">
-              {{ startupStatus.backendOk ? '正常' : '异常' }}
-            </span>
-          </li>
-          <li>
-            <strong>登录状态</strong>
-            <span :class="startupStatus.loggedIn ? 'success' : 'muted'">
-              {{ startupStatus.loggedIn ? '已登录' : '未登录（可继续浏览）' }}
-            </span>
-          </li>
-          <li>
-            <strong>管理端地址</strong>
-            <span class="muted">
-              {{ startupStatus.adminApiBase || '未配置（本机可不配）' }}
-            </span>
-          </li>
-          <li v-if="startupStatus.adminApiBase">
-            <strong>管理端连通</strong>
-            <span :class="startupStatus.adminReachable ? 'success' : 'error'">
-              {{ startupStatus.adminReachable ? '正常' : '不可达' }}
-            </span>
-          </li>
-          <li>
-            <strong>用户端 API 目标</strong>
-            <span class="muted">{{ startupStatus.publicApiBase }}</span>
-          </li>
-        </ul>
-        <p v-if="startupChecklistError" class="error">{{ startupChecklistError }}</p>
-      </section>
-
-      <section v-if="routeMode === 'app' && appTab === 'library'" class="card library-section">
-        <h2>0. 曲目入口（谱库页骨架）</h2>
-        <p class="muted small-margin">
-          先用轻量路由骨架模拟“谱库 -> 曲目页”。后续接大谱库时可直接替换此入口。
-        </p>
-        <div class="inline-row">
+      <section v-if="routeMode === 'app' && appTab === 'home'" class="card library-home-section">
+        <h2>首页 · 曲库</h2>
+        <div class="home-search-row">
           <input
-            v-model="manualScoreId"
-            class="score-id-input"
-            placeholder="输入 score_id 后进入曲目页"
+            v-model="homeSearchInput"
+            class="score-id-input home-search-input"
+            placeholder="搜索曲目名称"
+            @keyup.enter="searchHomeScores"
           />
-          <button type="button" class="btn small" @click="openScoreFromInput">
-            进入曲目页
-          </button>
-          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="loadScoreLibrary(manualScoreId)">
-            {{ scoreLibraryLoading ? '搜索中…' : '搜索曲库' }}
+          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">搜索</button>
+          <button type="button" class="btn small" @click="showHomeFilters = !showHomeFilters">
+            {{ showHomeFilters ? '收起筛选' : '筛选' }}
           </button>
         </div>
-        <div class="inline-row" style="margin-top: 0.6rem">
-          <label class="muted">难度</label>
-          <select v-model="scoreFilterDifficulty" class="score-id-input" style="max-width: 180px">
-            <option value="">全部</option>
-            <option v-for="d in difficultyOptions" :key="d" :value="d">{{ d }}</option>
-          </select>
-          <input
-            v-model="scoreFilterAbility"
-            class="score-id-input"
-            style="max-width: 260px"
-            placeholder="能力标签，如 rhythm_control"
-          />
-          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="loadScoreLibrary(manualScoreId)">
-            应用筛选
-          </button>
+        <div v-if="showHomeFilters" class="home-filter-panel">
+          <div class="inline-row">
+            <label class="muted">难度</label>
+            <select v-model="scoreFilterDifficulty" class="score-id-input" style="max-width: 180px">
+              <option value="">全部</option>
+              <option v-for="d in difficultyOptions" :key="d" :value="d">{{ d }}</option>
+            </select>
+            <input
+              v-model="scoreFilterAbility"
+              class="score-id-input"
+              style="max-width: 260px"
+              placeholder="能力标签，如 rhythm_control"
+            />
+            <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="applyHomeFilters">
+              应用筛选
+            </button>
+          </div>
         </div>
         <p v-if="scoreLibraryError" class="error">{{ scoreLibraryError }}</p>
-        <div class="recent-list" style="margin-top: 0.75rem">
-          <strong>曲库列表（{{ scoreLibraryRows.length }}）</strong>
-          <p v-if="scoreLibraryLoading" class="muted">加载曲库中…</p>
-          <div v-else-if="scoreLibraryRows.length">
-            <div class="inline-row" style="margin-top: 0.4rem; margin-bottom: 0.6rem">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  :checked="selectedLibraryScoreIds.length === scoreLibraryRows.length"
-                  @change="toggleSelectAllScores($event.target.checked)"
-                />
-                全选
-              </label>
-              <button
-                type="button"
-                class="btn small"
-                :disabled="batchDeleting || !selectedLibraryScoreIds.length"
-                @click="deleteSelectedScores"
-              >
-                {{ batchDeleting ? '批量删除中…' : `批量删除(${selectedLibraryScoreIds.length})` }}
-              </button>
-            </div>
-            <div
-              v-for="r in scoreLibraryRows.slice(0, 30)"
-              :key="r.score_id"
-              class="inline-row"
-              style="margin-bottom: 0.35rem"
-            >
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  :checked="selectedLibraryScoreIds.includes(r.score_id)"
-                  @change="toggleScoreSelection(r.score_id, $event.target.checked)"
-                />
-              </label>
-              <button type="button" class="btn small" @click="goScore(r.score_id)">
-                {{ scoreDisplayNameByRow(r) }}
-              </button>
-              <button
-                type="button"
-                class="btn small"
-                :disabled="deletingScoreId === r.score_id || batchDeleting"
-                @click="deleteOneScore(r.score_id)"
-              >
-                {{ deletingScoreId === r.score_id ? '删除中…' : '删除' }}
-              </button>
-            </div>
-          </div>
-          <p v-else class="muted">曲库为空，请先上传曲目。</p>
-        </div>
-        <div v-if="recentScores.length" class="recent-list">
-          <strong>最近曲目</strong>
-          <div class="inline-row">
-            <div
-              v-for="sid in recentScores"
-              :key="sid"
-              class="recent-item"
-            >
-              <button
-                type="button"
-                class="btn small recent-item-main"
-                @click="goScore(sid)"
-              >
-                {{ scoreDisplayNameById(sid) }}
-              </button>
-              <button
-                type="button"
-                class="recent-item-close"
-                title="从最近曲目移除"
-                @click="removeRecentScore(sid)"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="form-row inline-row" style="margin-top: 0.75rem">
-          <button type="button" class="btn small" :disabled="reassessAllLoading" @click="runAssessAllScores">
-            {{ reassessAllLoading ? '批量评估中…' : '一键批量重评估旧曲目' }}
+        <div v-if="scoreLibraryError" class="inline-row" style="margin-top: 0.5rem">
+          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">重试加载</button>
+          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="clearHomeFilters">
+            清空筛选/返回全部
           </button>
-          <span v-if="reassessAllResult" class="muted">
-            已处理 {{ reassessAllResult.processed_count }} 首，跳过 {{ reassessAllResult.skipped_count }} 首
-          </span>
         </div>
-        <p v-if="reassessAllError" class="error">{{ reassessAllError }}</p>
+        <p v-else-if="scoreLibraryLoading" class="muted">曲库加载中…</p>
+        <div v-else-if="!homeScoreCards.length">
+          <p class="muted">暂无匹配曲目。</p>
+          <button
+            v-if="hasHomeFilterApplied"
+            type="button"
+            class="btn small"
+            :disabled="scoreLibraryLoading"
+            @click="clearHomeFilters"
+          >
+            清空筛选/返回全部
+          </button>
+        </div>
+        <div v-else class="home-score-grid">
+          <button
+            v-for="r in homeScoreCards"
+            :key="r.score_id"
+            type="button"
+            class="home-score-card"
+            @click="goScore(r.score_id)"
+          >
+            <img
+              v-if="!homeCoverFailedMap[r.score_id]"
+              class="home-score-cover"
+              :src="homeCoverSrc(r.score_id)"
+              :alt="`${r.title} 封面`"
+              loading="lazy"
+              @error="handleHomeCoverError(r.score_id)"
+            />
+            <div v-else class="home-score-cover home-score-cover-fallback">
+              <span class="muted">封面加载失败</span>
+              <button type="button" class="btn small" @click.stop="retryHomeCover(r.score_id)">重试</button>
+            </div>
+            <span class="home-score-title">{{ r.title }}</span>
+          </button>
+        </div>
       </section>
 
       <!-- 上传 -->
@@ -243,42 +163,50 @@
         <p v-if="scoreId" class="success">已加载曲目：{{ currentScoreDisplayName }}</p>
       </section>
 
-      <section
-        v-if="routeMode === 'app' && scoreId && (appTab === 'library' || appTab === 'practice')"
-        class="card score-page-section"
-      >
-        <h2>乐谱页 · {{ currentScoreDisplayName }}</h2>
-        <div class="inline-row">
-          <button type="button" class="btn small" :disabled="scorePage <= 1" @click="scorePage--">上一页</button>
-          <span>第 {{ scorePage }} / {{ scorePageCount || '?' }} 页</span>
-          <button
-            type="button"
-            class="btn small"
-            :disabled="scorePageCount > 0 && scorePage >= scorePageCount"
-            @click="scorePage++"
-          >
-            下一页
-          </button>
+      <section v-if="routeMode === 'score'" class="card score-detail-page">
+        <div class="inline-row" style="margin-bottom: 0.75rem">
+          <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
         </div>
-        <p v-if="scoreImageError" class="error">{{ scoreImageError }}</p>
-        <img
-          v-else
-          class="score-image"
-          :src="scoreImageSrc"
-          alt="score page"
-          @error="handleScoreImageError"
-        />
-        <div class="score-meta-box">
-          <p><strong>曲目画像</strong></p>
-          <p v-if="scoreMetaLoading" class="muted">加载中…</p>
-          <p v-else-if="scoreMetaError" class="error">{{ scoreMetaError }}</p>
-          <template v-else-if="scoreMeta">
-            <p><strong>标题：</strong>{{ scoreMeta.title || '未命名' }}</p>
-            <p><strong>难度：</strong>{{ scoreMeta.difficulty || 'unknown' }}</p>
-            <p v-if="scoreMeta.abilities?.length"><strong>训练能力：</strong>{{ scoreMeta.abilities.join('、') }}</p>
-            <p v-if="scoreMeta.assessment?.reason" class="muted">依据：{{ scoreMeta.assessment.reason }}</p>
-          </template>
-          <p v-else class="muted">暂无画像，请先手动评估或批量重评估。</p>
+        <p v-if="scoreMissing" class="error">曲目不存在或已被删除，请返回首页重新选择。</p>
+        <div v-else class="score-detail-layout">
+          <div class="score-detail-left">
+            <p v-if="scoreImageError" class="error">{{ scoreImageError }}</p>
+            <div v-else-if="!scorePageList.length" class="muted">乐谱加载中…</div>
+            <div v-else class="score-pages-scroll">
+              <div v-for="page in scorePageList" :key="page" class="score-page-item">
+                <img
+                  v-if="!scorePageFailedMap[page]"
+                  class="score-page-image"
+                  :src="scorePageImageSrc(page)"
+                  :alt="`第 ${page} 页`"
+                  loading="lazy"
+                  @error="handleScorePageError(page)"
+                />
+                <div v-else class="score-page-image score-page-fallback">
+                  <span class="muted">第 {{ page }} 页加载失败</span>
+                  <button type="button" class="btn small" @click="retryScorePage(page)">重试</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="score-detail-right">
+            <h2>{{ currentScoreDisplayName }}</h2>
+            <div class="score-meta-box">
+              <p><strong>曲目画像</strong></p>
+              <p v-if="scoreMetaLoading" class="muted">加载中…</p>
+              <p v-else-if="scoreMetaError" class="error">{{ scoreMetaError }}</p>
+              <template v-else-if="scoreMeta">
+                <p><strong>标题：</strong>{{ scoreMeta.title || '未命名' }}</p>
+                <p><strong>难度：</strong>{{ scoreMeta.difficulty || 'unknown' }}</p>
+                <p v-if="scoreMeta.abilities?.length"><strong>训练能力：</strong>{{ scoreMeta.abilities.join('、') }}</p>
+                <p v-if="scoreMeta.assessment?.reason" class="muted">依据：{{ scoreMeta.assessment.reason }}</p>
+              </template>
+              <p v-else class="muted">暂无画像</p>
+            </div>
+            <button type="button" class="btn primary" style="margin-top: 0.9rem" @click="startPracticeFromScore">
+              开始练习
+            </button>
+          </div>
         </div>
       </section>
 
@@ -475,10 +403,7 @@
 
       <!-- 近期练习概况（对接 GET /api/practice/summary） -->
       <section v-if="routeMode === 'app' && appTab === 'profile'" class="card summary-section">
-        <h2>4. 近期练习概况</h2>
-        <p class="muted small-margin">
-          统计已保存的练习记录（当前 <code>user_id={{ currentUserId }}</code>）。可查看全部曲目或仅当前乐谱。
-        </p>
+        <h2>练习记录</h2>
         <div class="form-row inline-row">
           <label class="checkbox-label">
             <input type="checkbox" v-model="summaryOnlyCurrentScore" :disabled="!scoreId" />
@@ -626,137 +551,206 @@
         </div>
       </section>
 
-      <!-- 智能练习建议（百炼 / 阶段 1：仅文本） -->
       <section v-if="routeMode === 'app' && appTab === 'assistant'" class="card assistant-section">
-        <h2>5. 智能练习建议</h2>
-        <p class="muted small-margin">
-          使用阿里云通义分析近期练习数据（与第 4 节相同的用户与曲目筛选）。需在项目根目录配置
-          <code>DASHSCOPE_API_KEY</code>，详见 <strong>如何运行.md</strong>。
-        </p>
-        <div class="form-row inline-row">
-          <button
-            type="button"
-            class="btn primary"
-            :disabled="assistantLoading"
-            @click="loadAssistantSuggestion"
-          >
-            {{ assistantLoading ? '生成中…' : '生成练习建议' }}
-          </button>
-          <span v-if="assistantModel" class="muted">模型：{{ assistantModel }}</span>
+        <h2>keygent</h2>
+        <div class="assistant-topbar">
+          <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
+          <button type="button" class="btn small" @click="refreshAssistantPanel">刷新</button>
         </div>
-        <p v-if="assistantError" class="error">{{ assistantError }}</p>
-        <div v-if="assistantPlan" class="assistant-plan">
-          <p>
-            <strong>今日建议时长：</strong>{{ assistantPlan.today_minutes }} 分钟
-            <span class="muted pad-left">推荐模式：{{ assistantPlan.suggested_compare_mode === 'advanced_rhythm' ? '高级（音准+节奏）' : '初级（仅看音准）' }}</span>
-          </p>
-          <p v-if="assistantPlan.user_level_estimate">
-            <strong>用户水平估计：</strong>
-            {{ assistantPlan.user_level_estimate.label }}
-            <span class="muted">
-              （score={{ assistantPlan.user_level_estimate.score }}，rank={{ assistantPlan.user_level_estimate.rank }}/5）
-            </span>
-          </p>
-          <p v-if="assistantPlan.focus_start_measure != null && assistantPlan.focus_end_measure != null">
-            <strong>推荐小节：</strong>第 {{ assistantPlan.focus_start_measure }} - {{ assistantPlan.focus_end_measure }} 小节
-          </p>
-          <p v-if="assistantPlan.relative_difficulty?.current_score">
-            <strong>当前曲目相对难度：</strong>{{ assistantPlan.relative_difficulty.current_score.text }}
-          </p>
-          <p v-if="assistantPlan.relative_difficulty?.recommended_next_score">
-            <strong>推荐下一首相对难度：</strong>{{ assistantPlan.relative_difficulty.recommended_next_score.text }}
-          </p>
-          <ul class="weak-list compact" v-if="assistantPlan.steps?.length">
-            <li v-for="(s, i) in assistantPlan.steps" :key="i">{{ s }}</li>
-          </ul>
-          <div class="inline-row" v-if="assistantPlan.actions?.length">
-            <button
-              v-for="(a, i) in assistantPlan.actions"
-              :key="i"
-              type="button"
-              class="btn small"
-              @click="applyAssistantAction(a)"
-            >
-              {{ a.label || a.type }}
-            </button>
-          </div>
-          <p v-if="assistantPlan.reasons?.length" class="muted small-line">
-            依据：{{ assistantPlan.reasons.join('；') }}
-          </p>
-        </div>
-        <div v-if="assistantSuggestion" class="assistant-reply">
-          <pre>{{ assistantSuggestion }}</pre>
-        </div>
-        <div class="assistant-plan">
-          <p><strong>助手会话（按用户长期记忆）</strong></p>
-          <div class="inline-row" v-if="threadMessages.length" style="margin-bottom: 0.4rem">
-            <span class="muted">共 {{ threadMessages.length }} 条</span>
-            <button type="button" class="btn small" @click="showAllThreadMessages = !showAllThreadMessages">
-              {{ showAllThreadMessages ? '仅看最近12条' : '查看全部' }}
-            </button>
-          </div>
-          <div class="chat-box" v-if="threadMessages.length">
-            <div v-for="m in displayedThreadMessages" :key="m.id" class="chat-line">
-              <strong>{{ m.role === 'user' ? '你' : '助手' }}：</strong>{{ m.content }}
+
+        <input ref="assistantPdfInputEl" type="file" accept=".pdf" style="display: none" @change="onAssistantPdfPicked" />
+        <input
+          ref="assistantReferenceInputEl"
+          type="file"
+          accept=".musicxml,.xml,.mxl,.mid,.midi,audio/*"
+          style="display: none"
+          @change="onAssistantReferencePicked"
+        />
+
+        <div class="assistant-layout">
+          <aside v-if="scoreId && assistantShowScorePanel" class="assistant-score-pane">
+            <div class="assistant-score-pane-head">
+              <strong>{{ currentScoreDisplayName }}</strong>
+              <button type="button" class="assistant-close-btn" @click="assistantShowScorePanel = false">×</button>
+            </div>
+            <div class="assistant-score-scroll">
+              <img
+                v-for="page in scorePageList"
+                :key="page"
+                class="assistant-score-image"
+                :src="scorePageImageSrc(page)"
+                :alt="`第 ${page} 页`"
+                loading="lazy"
+              />
+            </div>
+          </aside>
+
+          <div class="assistant-chat-pane">
+            <div class="assistant-plan" v-if="scoreId">
+              <p><strong>练习设置</strong></p>
+              <div class="inline-row">
+                <button type="button" class="btn small" @click="pickAssistantPerformance">上传您的演奏</button>
+                <span class="muted">{{ audioFile ? audioFile.name : '未选择' }}</span>
+              </div>
+              <div class="inline-row" style="margin-top: 0.45rem">
+                <label class="muted">本次练习小节</label>
+                <input v-model="focusStartMeasure" type="number" min="1" class="input-narrow" placeholder="起" />
+                <span class="muted">到</span>
+                <input v-model="focusEndMeasure" type="number" min="1" class="input-narrow" placeholder="止" />
+              </div>
+              <div class="inline-row" style="margin-top: 0.45rem">
+                <button type="button" class="btn primary" :disabled="comparing || !audioFile" @click="runAssistantCompareFlow">
+                  {{ comparing ? '比对中…' : '开始比对' }}
+                </button>
+              </div>
+              <p v-if="compareError" class="error">{{ compareError }}</p>
+              <input
+                ref="assistantPerformanceInputEl"
+                type="file"
+                accept="audio/*,.wav,.mp3,.flac,.ogg,.mid,.midi"
+                style="display: none"
+                @change="onAssistantPerformancePicked"
+              />
+            </div>
+
+            <div v-if="compareResult" class="assistant-plan">
+              <p><strong>比对结果</strong></p>
+              <p>准确率：{{ (compareResult.accuracy * 100).toFixed(1) }}% · 错音：{{ compareResult.errors?.length || 0 }}</p>
+            </div>
+
+            <div class="assistant-chat-shell">
+              <div class="chat-box wechat-box" v-if="threadMessages.length">
+                <div v-if="assistantEntryPromptVisible" class="chat-line chat-line-assistant">
+                  <div class="chat-bubble system-card">
+                    <p><strong>从一个曲目开始：</strong></p>
+                    <div class="inline-row">
+                      <button type="button" class="btn small" @click="goAppTab('home')">从曲库中选择</button>
+                      <button type="button" class="btn small" @click="assistantUploadExpanded = !assistantUploadExpanded">
+                        上传一个曲目
+                      </button>
+                    </div>
+                    <div v-if="assistantUploadExpanded" class="assistant-upload-panel">
+                      <div class="inline-row">
+                        <button type="button" class="btn small" @click="pickAssistantPdf">上传 PDF 谱</button>
+                        <span class="muted">{{ assistantPdfFile ? assistantPdfFile.name : '未选择' }}</span>
+                      </div>
+                      <div class="inline-row" style="margin-top: 0.45rem">
+                        <button type="button" class="btn small" @click="pickAssistantReference">上传标准演奏音频</button>
+                        <span class="muted">{{ assistantReferenceFile ? assistantReferenceFile.name : '未选择' }}</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn primary"
+                        style="margin-top: 0.6rem"
+                        :disabled="assistantUploadingScore || !assistantPdfFile || !assistantReferenceFile"
+                        @click="uploadAssistantScorePack"
+                      >
+                        {{ assistantUploadingScore ? '上传中…' : '确认上传曲目' }}
+                      </button>
+                      <p v-if="assistantUploadError" class="error">{{ assistantUploadError }}</p>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-for="m in displayedThreadMessages"
+                  :key="m.id"
+                  :class="['chat-line', m.role === 'user' ? 'chat-line-user' : 'chat-line-assistant']"
+                >
+                  <div class="chat-bubble">{{ m.content }}</div>
+                </div>
+                <div v-if="assistantSuggestion" class="chat-line chat-line-assistant">
+                  <div class="chat-bubble"><pre>{{ assistantSuggestion }}</pre></div>
+                </div>
+                <div v-if="todayPlan" class="chat-line chat-line-assistant">
+                  <div class="chat-bubble"><pre>{{ JSON.stringify(todayPlan, null, 2) }}</pre></div>
+                </div>
+                <div class="chat-line chat-line-assistant" v-if="scoreId">
+                  <div class="chat-bubble action-card">
+                    <div class="assistant-actions-in-chat">
+                      <button type="button" class="btn primary" :disabled="assistantLoading" @click="loadAssistantSuggestion">
+                        {{ assistantLoading ? '生成中…' : '生成建议' }}
+                      </button>
+                      <button type="button" class="btn primary" :disabled="todayPlanLoading" @click="loadTodayPlan">
+                        {{ todayPlanLoading ? '生成中…' : '练习任务' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-box wechat-box" v-else>
+                <div v-if="assistantEntryPromptVisible" class="chat-line chat-line-assistant">
+                  <div class="chat-bubble system-card">
+                    <p><strong>从一个曲目开始：</strong></p>
+                    <div class="inline-row">
+                      <button type="button" class="btn small" @click="goAppTab('home')">从曲库中选择</button>
+                      <button type="button" class="btn small" @click="assistantUploadExpanded = !assistantUploadExpanded">
+                        上传一个曲目
+                      </button>
+                    </div>
+                    <div v-if="assistantUploadExpanded" class="assistant-upload-panel">
+                      <div class="inline-row">
+                        <button type="button" class="btn small" @click="pickAssistantPdf">上传 PDF 谱</button>
+                        <span class="muted">{{ assistantPdfFile ? assistantPdfFile.name : '未选择' }}</span>
+                      </div>
+                      <div class="inline-row" style="margin-top: 0.45rem">
+                        <button type="button" class="btn small" @click="pickAssistantReference">上传标准演奏音频</button>
+                        <span class="muted">{{ assistantReferenceFile ? assistantReferenceFile.name : '未选择' }}</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn primary"
+                        style="margin-top: 0.6rem"
+                        :disabled="assistantUploadingScore || !assistantPdfFile || !assistantReferenceFile"
+                        @click="uploadAssistantScorePack"
+                      >
+                        {{ assistantUploadingScore ? '上传中…' : '确认上传曲目' }}
+                      </button>
+                      <p v-if="assistantUploadError" class="error">{{ assistantUploadError }}</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="chat-line chat-line-assistant" v-else>
+                  <div class="chat-bubble">暂无会话消息，发送第一条消息开始。</div>
+                </div>
+                <div class="chat-line chat-line-assistant" v-if="scoreId">
+                  <div class="chat-bubble action-card">
+                    <div class="assistant-actions-in-chat">
+                      <button type="button" class="btn primary" :disabled="assistantLoading" @click="loadAssistantSuggestion">
+                        {{ assistantLoading ? '生成中…' : '生成建议' }}
+                      </button>
+                      <button type="button" class="btn primary" :disabled="todayPlanLoading" @click="loadTodayPlan">
+                        {{ todayPlanLoading ? '生成中…' : '练习任务' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-if="assistantError" class="error">{{ assistantError }}</p>
+              <p v-if="todayPlanError" class="error">{{ todayPlanError }}</p>
+              <p v-if="chatError" class="error">{{ chatError }}</p>
+
+              <div class="assistant-input-row">
+                <input
+                  v-model="chatInput"
+                  class="score-id-input assistant-chat-input"
+                  placeholder="和助手对话，回车或点击发送"
+                  @keyup.enter="sendChat"
+                />
+                <button type="button" class="btn small" :disabled="chatLoading" @click="sendChat">
+                  {{ chatLoading ? '发送中…' : '发送' }}
+                </button>
+              </div>
             </div>
           </div>
-          <p v-else class="muted">暂无会话消息，发送第一条消息开始。</p>
-          <div class="inline-row" style="margin-top: 0.5rem">
-            <input
-              v-model="chatInput"
-              class="score-id-input"
-              placeholder="给助手发消息，例如：我今天应该先练哪里？"
-            />
-            <button type="button" class="btn small" :disabled="chatLoading" @click="sendChat">
-              {{ chatLoading ? '发送中…' : '发送' }}
-            </button>
-            <button type="button" class="btn small" :disabled="chatLoading" @click="loadAssistantThread">
-              刷新会话
-            </button>
-          </div>
-          <p v-if="chatError" class="error">{{ chatError }}</p>
         </div>
       </section>
-
-      <section v-if="routeMode === 'app' && appTab === 'assistant'" class="card">
-        <h2>6. 今日任务单（阶段3）</h2>
-        <p class="muted small-margin">
-          根据近期练习数据自动生成 3-4 条今日任务（先做生成与展示，下一步再接打卡）。
-        </p>
-        <div class="form-row inline-row">
-          <button
-            type="button"
-            class="btn primary"
-            :disabled="todayPlanLoading"
-            @click="loadTodayPlan"
-          >
-            {{ todayPlanLoading ? '生成中…' : '生成今日任务单' }}
-          </button>
-        </div>
-        <p v-if="todayPlanError" class="error">{{ todayPlanError }}</p>
-        <div v-if="todayPlan" class="assistant-plan">
-          <p>
-            <strong>总时长：</strong>{{ todayPlan.total_minutes }} 分钟
-            <span class="muted pad-left">窗口会话：{{ todayPlan.summary_snapshot?.window_sessions || 0 }}</span>
-          </p>
-          <ol class="task-list">
-            <li v-for="t in todayPlan.tasks" :key="t.id">
-              <p><strong>{{ t.title }}</strong>（{{ t.minutes }} 分钟）</p>
-              <ul class="weak-list compact" v-if="t.steps?.length">
-                <li v-for="(s, i) in t.steps" :key="i">{{ s }}</li>
-              </ul>
-            </li>
-          </ol>
-        </div>
-      </section>
-      <nav v-if="routeMode === 'app'" class="bottom-tabs">
-        <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页</button>
-        <button :class="['tab-btn', appTab === 'library' ? 'active' : '']" @click="goAppTab('library')">曲库</button>
-        <button :class="['tab-btn', appTab === 'practice' ? 'active' : '']" @click="goAppTab('practice')">练习</button>
-        <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">助手</button>
-        <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">我的</button>
+      <nav v-if="routeMode === 'app' && appTab !== 'assistant' && appTab !== 'profile'" class="bottom-tabs">
+        <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页·曲库</button>
+        <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
+        <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
       </nav>
     </main>
+    </template>
   </div>
 </template>
 
@@ -874,6 +868,7 @@ const reassessAllResult = ref(null)
 const reassessAllError = ref('')
 const routeMode = ref('app')
 const appTab = ref('home')
+const isAuthenticated = computed(() => Boolean(authToken.value))
 const chatLoading = ref(false)
 const chatError = ref('')
 const chatInput = ref('')
@@ -883,6 +878,23 @@ const displayedThreadMessages = computed(() => (
   showAllThreadMessages.value ? threadMessages.value : threadMessages.value.slice(-12)
 ))
 const difficultyOptions = ['beginner', 'intermediate', 'advanced', 'expert']
+const homeSearchInput = ref('')
+const showHomeFilters = ref(false)
+const homeCoverRetryMap = ref({})
+const homeCoverFailedMap = ref({})
+const scoreMissing = ref(false)
+const scorePageRetryMap = ref({})
+const scorePageFailedMap = ref({})
+const assistantEntryPromptVisible = ref(true)
+const assistantUploadExpanded = ref(false)
+const assistantPdfFile = ref(null)
+const assistantReferenceFile = ref(null)
+const assistantUploadError = ref('')
+const assistantUploadingScore = ref(false)
+const assistantShowScorePanel = ref(true)
+const assistantPdfInputEl = ref(null)
+const assistantReferenceInputEl = ref(null)
+const assistantPerformanceInputEl = ref(null)
 
 function scoreDisplayNameByRow(row) {
   const title = String(row?.meta?.title || '').trim()
@@ -899,6 +911,9 @@ function scoreDisplayNameById(sid) {
 function friendlyErrorMessage(err, fallbackText) {
   const msg = String(err?.message || '').trim()
   const low = msg.toLowerCase()
+  if (low.includes('timeout') || low.includes('timed out') || low.includes('超时')) {
+    return '请求超时，请稍后重试。'
+  }
   if (
     low.includes('failed to fetch')
     || low.includes('networkerror')
@@ -908,6 +923,47 @@ function friendlyErrorMessage(err, fallbackText) {
     return '无法连接后端服务，请确认后端已启动，或检查云端地址配置（VITE_PUBLIC_API_BASE）。'
   }
   return msg || fallbackText
+}
+
+function withTimeout(promise, timeoutMs = 10000, timeoutMessage = '请求超时') {
+  let timer = null
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+    }),
+  ]).finally(() => {
+    if (timer) window.clearTimeout(timer)
+  })
+}
+
+function normalizeAuthText(text) {
+  return String(text || '').trim().toLowerCase()
+}
+
+function canAutoRegisterFromLoginError(messageText) {
+  const low = normalizeAuthText(messageText)
+  return (
+    low.includes('用户不存在')
+    || low.includes('账号不存在')
+    || low.includes('account not found')
+    || low.includes('user not found')
+    || low.includes('not found')
+  )
+}
+
+function validateAuthInput() {
+  const account = String(authAccountInput.value || '').trim()
+  const password = String(authPasswordInput.value || '')
+  if (!account) throw new Error('账号为空，请填写用户名。')
+  if (!password) throw new Error('密码为空，请填写密码。')
+  if (account.length < 3 || account.length > 128) {
+    throw new Error('账号长度不合法，需为 3-128 位。')
+  }
+  if (password.length < 6 || password.length > 128) {
+    throw new Error('密码长度不合法，需为 6-128 位。')
+  }
+  return { account, password }
 }
 
 async function refreshBackendHealth({ silent = false } = {}) {
@@ -979,8 +1035,41 @@ const scoreImageSrc = computed(() => {
   if (!scoreId.value) return ''
   return getScoreImageUrl(scoreId.value, scorePage.value)
 })
+const scorePageList = computed(() => {
+  const n = Number(scorePageCount.value) || 0
+  if (n <= 0) return []
+  return Array.from({ length: n }, (_, i) => i + 1)
+})
+
+const homeScoreCards = computed(() => {
+  if (!Array.isArray(scoreLibraryRows.value)) return []
+  return scoreLibraryRows.value
+    .filter((r) => String(r?.score_id || '').trim())
+    .map((r) => ({
+      score_id: String(r.score_id),
+      title: scoreDisplayNameByRow(r),
+      cover: getScoreImageUrl(String(r.score_id), 1),
+    }))
+})
+const hasHomeFilterApplied = computed(() => (
+  Boolean(String(homeSearchInput.value || '').trim())
+  || Boolean(String(scoreFilterDifficulty.value || '').trim())
+  || Boolean(String(scoreFilterAbility.value || '').trim())
+))
+
+function normalizeAppTab(tab) {
+  const t = String(tab || '').toLowerCase()
+  if (t === 'library') return 'home'
+  if (t === 'practice') return 'assistant'
+  return ['home', 'assistant', 'profile'].includes(t) ? t : 'home'
+}
 
 function parseHashRoute() {
+  if (!authToken.value) {
+    routeMode.value = 'auth'
+    routePathLabel.value = '/login'
+    return
+  }
   const hash = String(window.location.hash || '')
   if (hash === '#/admin') {
     // Admin 为独立入口；file:// 下不能用根路径 /admin.html，需相对当前页面解析
@@ -990,10 +1079,7 @@ function parseHashRoute() {
   const appTabMatch = hash.match(/^#\/app\/([a-zA-Z0-9_-]+)/)
   if (appTabMatch && appTabMatch[1]) {
     routeMode.value = 'app'
-    const t = String(appTabMatch[1]).toLowerCase()
-    appTab.value = ['home', 'library', 'practice', 'assistant', 'profile'].includes(t)
-      ? t
-      : 'home'
+    appTab.value = normalizeAppTab(appTabMatch[1])
     routePathLabel.value = `/app/${appTab.value}`
     return
   }
@@ -1005,8 +1091,7 @@ function parseHashRoute() {
   }
   const m = hash.match(/^#\/score\/([^/?#]+)/)
   if (m && m[1]) {
-    routeMode.value = 'app'
-    appTab.value = 'library'
+    routeMode.value = 'score'
     const sid = decodeURIComponent(m[1])
     scoreId.value = sid
     manualScoreId.value = sid
@@ -1018,22 +1103,178 @@ function parseHashRoute() {
 }
 
 function goHome() {
+  if (!authToken.value) {
+    parseHashRoute()
+    return
+  }
   window.location.hash = '#/app/home'
 }
 
 function goApp() {
+  if (!authToken.value) {
+    parseHashRoute()
+    return
+  }
   window.location.hash = '#/app/home'
 }
 
 function goAppTab(tab) {
-  const t = String(tab || '').toLowerCase()
-  const safe = ['home', 'library', 'practice', 'assistant', 'profile'].includes(t)
-    ? t
-    : 'home'
+  if (!authToken.value) {
+    parseHashRoute()
+    return
+  }
+  const safe = normalizeAppTab(tab)
   window.location.hash = `#/app/${safe}`
 }
 
+async function searchHomeScores() {
+  await loadScoreLibrary(homeSearchInput.value)
+}
+
+async function applyHomeFilters() {
+  showHomeFilters.value = false
+  await loadScoreLibrary(homeSearchInput.value)
+}
+
+function scorePageImageSrc(page) {
+  if (!scoreId.value) return ''
+  const base = getScoreImageUrl(scoreId.value, page)
+  const tick = Number(scorePageRetryMap.value[page] || 0)
+  if (!tick) return base
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}retry=${tick}`
+}
+
+function handleScorePageError(page) {
+  scorePageFailedMap.value = { ...scorePageFailedMap.value, [page]: true }
+}
+
+function retryScorePage(page) {
+  const next = Number(scorePageRetryMap.value[page] || 0) + 1
+  scorePageRetryMap.value = { ...scorePageRetryMap.value, [page]: next }
+  scorePageFailedMap.value = { ...scorePageFailedMap.value, [page]: false }
+}
+
+function startPracticeFromScore() {
+  if (!scoreId.value) return
+  assistantEntryPromptVisible.value = false
+  assistantShowScorePanel.value = true
+  goAppTab('assistant')
+}
+
+function refreshAssistantPanel() {
+  chatInput.value = ''
+  chatError.value = ''
+  compareError.value = ''
+  compareResult.value = null
+  assistantError.value = ''
+  assistantSuggestion.value = ''
+  todayPlanError.value = ''
+  todayPlan.value = null
+  threadMessages.value = []
+}
+
+function pickAssistantPdf() {
+  assistantPdfInputEl.value?.click()
+}
+
+function pickAssistantReference() {
+  assistantReferenceInputEl.value?.click()
+}
+
+function onAssistantPdfPicked(e) {
+  assistantPdfFile.value = e?.target?.files?.[0] || null
+}
+
+function onAssistantReferencePicked(e) {
+  assistantReferenceFile.value = e?.target?.files?.[0] || null
+}
+
+function pickAssistantPerformance() {
+  assistantPerformanceInputEl.value?.click()
+}
+
+function onAssistantPerformancePicked(e) {
+  audioFile.value = e?.target?.files?.[0] || null
+}
+
+function isMusicxmlFilename(name) {
+  const n = String(name || '').toLowerCase()
+  return n.endsWith('.musicxml') || n.endsWith('.xml') || n.endsWith('.mxl')
+}
+
+async function uploadAssistantScorePack() {
+  assistantUploadError.value = ''
+  if (!assistantPdfFile.value || !assistantReferenceFile.value) {
+    assistantUploadError.value = '请先上传 PDF 谱和标准演奏文件。'
+    return
+  }
+  if (!isMusicxmlFilename(assistantReferenceFile.value.name)) {
+    assistantUploadError.value = '当前后端仅支持 MusicXML 作为标准演奏文件，请上传 .musicxml/.xml/.mxl。'
+    return
+  }
+  assistantUploadingScore.value = true
+  try {
+    const res = await uploadScore(assistantPdfFile.value, assistantReferenceFile.value, '')
+    scoreId.value = res.score_id
+    assistantEntryPromptVisible.value = false
+    assistantUploadExpanded.value = false
+    assistantShowScorePanel.value = true
+    assistantPdfFile.value = null
+    assistantReferenceFile.value = null
+  } catch (e) {
+    assistantUploadError.value = friendlyErrorMessage(e, '上传曲目失败')
+  } finally {
+    assistantUploadingScore.value = false
+  }
+}
+
+async function runAssistantCompareFlow() {
+  await doCompare()
+  if (!compareError.value && compareResult.value) {
+    await Promise.all([
+      loadAssistantSuggestion(),
+      loadTodayPlan(),
+    ])
+  }
+}
+
+async function clearHomeFilters() {
+  homeSearchInput.value = ''
+  scoreFilterDifficulty.value = ''
+  scoreFilterAbility.value = ''
+  showHomeFilters.value = false
+  await loadScoreLibrary('')
+}
+
+function homeCoverSrc(scoreId) {
+  const id = String(scoreId || '').trim()
+  const base = getScoreImageUrl(id, 1)
+  const retryTick = Number(homeCoverRetryMap.value[id] || 0)
+  if (!retryTick) return base
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}retry=${retryTick}`
+}
+
+function handleHomeCoverError(scoreId) {
+  const id = String(scoreId || '').trim()
+  if (!id) return
+  homeCoverFailedMap.value = { ...homeCoverFailedMap.value, [id]: true }
+}
+
+function retryHomeCover(scoreId) {
+  const id = String(scoreId || '').trim()
+  if (!id) return
+  const nextTick = Number(homeCoverRetryMap.value[id] || 0) + 1
+  homeCoverRetryMap.value = { ...homeCoverRetryMap.value, [id]: nextTick }
+  homeCoverFailedMap.value = { ...homeCoverFailedMap.value, [id]: false }
+}
+
 function goScore(sid) {
+  if (!authToken.value) {
+    parseHashRoute()
+    return
+  }
   if (!sid) return
   window.location.hash = `#/score/${encodeURIComponent(String(sid))}`
 }
@@ -1100,6 +1341,56 @@ async function doLogin() {
   }
 }
 
+async function doAuthEntry() {
+  authLoading.value = true
+  authError.value = ''
+  try {
+    const { account, password } = validateAuthInput()
+    const healthy = await withTimeout(checkBackendHealth(), 8000, '后端健康检查超时')
+    if (!healthy) throw new Error('无法连接后端（/health 不通）')
+    let res = null
+    try {
+      res = await withTimeout(authLogin(account, password), 12000, '登录请求超时')
+    } catch (e) {
+      // 优先自动注册再登录：即使登录返回“账号或密码错误”，也尝试注册一次。
+      try {
+        await withTimeout(authRegister(account, password), 12000, '注册请求超时')
+        res = await withTimeout(authLogin(account, password), 12000, '登录请求超时')
+      } catch (registerErr) {
+        if (canAutoRegisterFromLoginError(e?.message)) {
+          throw e
+        }
+        const registerMsg = String(registerErr?.message || '').toLowerCase()
+        if (
+          registerMsg.includes('已存在')
+          || registerMsg.includes('already exists')
+          || registerMsg.includes('account exists')
+          || registerMsg.includes('409')
+        ) {
+          throw e
+        }
+        throw registerErr
+      }
+    }
+    authToken.value = res?.access_token || ''
+    if (!authToken.value) throw new Error('登录状态异常，请重试。')
+    applyLoggedInUser(res.user)
+    setAuthToken(authToken.value)
+    localStorage.setItem('auth_token', authToken.value)
+    goAppTab('home')
+    await Promise.all([
+      loadScoreLibrary(),
+      loadPracticeSummary(),
+      loadPracticeSessionsList(),
+      loadAssistantThread(),
+    ])
+  } catch (e) {
+    authError.value = friendlyErrorMessage(e, '登录/注册失败')
+  } finally {
+    authLoading.value = false
+  }
+}
+
 async function doLogout() {
   authLoading.value = true
   authError.value = ''
@@ -1121,7 +1412,14 @@ async function doLogout() {
     assistantError.value = ''
     localStorage.removeItem('auth_token')
     authLoading.value = false
+    parseHashRoute()
   }
+}
+
+async function doLogoutWithConfirm() {
+  const ok = window.confirm('确认退出登录吗？')
+  if (!ok) return
+  await doLogout()
 }
 
 function addRecentScore(sid) {
@@ -1426,18 +1724,24 @@ onMounted(() => {
     authMe(authToken.value)
       .then((res) => {
         applyLoggedInUser(res.user)
+        parseHashRoute()
+        return Promise.all([
+          loadScoreLibrary(),
+          loadPracticeSummary(),
+          loadPracticeSessionsList(),
+          loadAssistantThread(),
+        ])
       })
       .catch(() => {
         authToken.value = ''
         currentAccount.value = ''
         setAuthToken('')
         localStorage.removeItem('auth_token')
+        parseHashRoute()
       })
+    return
   }
-  loadScoreLibrary()
-  loadPracticeSummary()
-  loadPracticeSessionsList()
-  loadAssistantThread()
+  parseHashRoute()
 })
 
 watch(currentUserId, async () => {
@@ -1449,6 +1753,13 @@ watch(currentUserId, async () => {
   await loadPracticeSummary()
   await loadPracticeSessionsList()
   await loadAssistantThread()
+})
+
+watch([appTab, routeMode], ([tab, mode]) => {
+  if (mode === 'app' && tab === 'assistant') {
+    assistantEntryPromptVisible.value = !scoreId.value
+    if (scoreId.value) assistantShowScorePanel.value = true
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1465,6 +1776,9 @@ watch(scoreId, async (id) => {
   scoreImageError.value = ''
   scorePageCount.value = 0
   scorePage.value = 1
+  scoreMissing.value = false
+  scorePageRetryMap.value = {}
+  scorePageFailedMap.value = {}
   if (!id) return
   addRecentScore(id)
   techniquesLoading.value = true
@@ -1479,7 +1793,13 @@ watch(scoreId, async (id) => {
     const info = await getScoreInfo(id)
     scorePageCount.value = Number(info.page_count) || 1
   } catch (e) {
-    scoreImageError.value = e.message
+    const msg = String(e?.message || '')
+    if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+      scoreMissing.value = true
+      scoreImageError.value = ''
+    } else {
+      scoreImageError.value = msg || '乐谱页加载失败，请稍后重试。'
+    }
   }
   await loadScoreMeta()
 })
@@ -1672,6 +1992,45 @@ body {
   min-height: 100vh;
   padding-bottom: 2rem;
 }
+.login-main {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.login-card {
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+.login-logo {
+  width: min(180px, 52%);
+  display: block;
+  margin: 0 auto 0.7rem auto;
+}
+.login-title {
+  margin: 0 0 0.35rem 0;
+  text-align: center;
+  font-size: 1.7rem;
+}
+.login-sub {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+.login-input {
+  width: 100%;
+  min-width: 0;
+}
+.hint-line {
+  margin: 0.35rem 0 0 0;
+  font-size: 0.85rem;
+}
+.login-btn {
+  width: 100%;
+}
 .header {
   background: #1a1a2e;
   color: #eee;
@@ -1679,27 +2038,125 @@ body {
 }
 .header h1 {
   margin: 0 0 0.25rem 0;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
 }
 .header .sub {
   margin: 0;
   font-size: 0.9rem;
   opacity: 0.85;
 }
-.nav-row {
-  margin-top: 0.65rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.nav-tip {
-  margin-left: 0.25rem;
-}
 .main {
   max-width: 1000px;
   margin: 0 auto;
   padding: 1.5rem 1.5rem 5rem 1.5rem;
+}
+.home-search-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.home-search-input {
+  flex: 1;
+  min-width: 0;
+}
+.home-filter-panel {
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+}
+.home-score-grid {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9rem;
+}
+.home-score-card {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.5rem;
+}
+.home-score-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
+}
+.home-score-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #f1f5f9;
+}
+.home-score-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+}
+.home-score-title {
+  margin-top: 0.45rem;
+  display: block;
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+.score-detail-page {
+  /* 关键：锁住外层滚动，只让左侧谱面滚动 */
+  height: calc(100vh - 240px);
+  min-height: 520px;
+  overflow: hidden;
+}
+.score-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  gap: 1rem;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+}
+.score-detail-left {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.score-pages-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  overscroll-behavior: contain;
+}
+.score-page-item {
+  margin-bottom: 0.8rem;
+}
+.score-page-image {
+  width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+}
+.score-page-fallback {
+  aspect-ratio: 3 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+}
+.score-detail-right {
+  height: 100%;
+  overflow: auto;
 }
 .score-id-input {
   min-width: 22rem;
@@ -1739,7 +2196,7 @@ body {
 }
 .card h2 {
   margin: 0 0 1rem 0;
-  font-size: 1.1rem;
+  font-size: 1.35rem;
 }
 .form-row {
   margin-bottom: 0.75rem;
@@ -1974,6 +2431,172 @@ body {
 .assistant-plan p {
   margin: 0 0 0.45rem 0;
 }
+.assistant-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.assistant-upload-panel {
+  margin-top: 0.6rem;
+}
+.assistant-layout {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(420px, 2fr) minmax(320px, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+  min-height: 72vh;
+}
+.assistant-score-pane {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0.55rem;
+  position: static;
+  height: 72vh;
+  display: flex;
+  flex-direction: column;
+}
+.assistant-score-pane-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+.assistant-close-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  line-height: 20px;
+  cursor: pointer;
+  background: #fff;
+}
+.assistant-score-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assistant-score-image {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid #dbeafe;
+  background: #fff;
+  margin-bottom: 0.55rem;
+}
+.assistant-chat-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.assistant-chat-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 72vh;
+  height: 72vh;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 0.65rem;
+}
+.wechat-box {
+  flex: 1;
+  min-height: 320px;
+  background: #eef2ff;
+}
+.chat-line-user {
+  display: flex;
+  justify-content: flex-end;
+}
+.chat-line-assistant {
+  display: flex;
+  justify-content: flex-start;
+}
+.chat-bubble {
+  max-width: min(82%, 560px);
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-line-assistant .chat-bubble {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #0f172a;
+}
+.chat-line-user .chat-bubble {
+  background: #95ec69;
+  border-color: #86df5e;
+}
+.system-card,
+.action-card {
+  max-width: min(92%, 640px);
+  background: #f8fafc;
+  border-color: #dbeafe;
+}
+.system-card p,
+.action-card p {
+  margin: 0 0 0.35rem 0;
+}
+.assistant-actions-in-chat {
+  margin-top: 0.15rem;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.assistant-input-row {
+  margin-top: 0.6rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.assistant-chat-input {
+  width: 100%;
+  min-width: 0;
+}
+.profile-header-card {
+  padding: 1rem 1.1rem;
+}
+.profile-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+.profile-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border: 2px solid #dbeafe;
+}
+.profile-avatar-text {
+  font-weight: 700;
+  font-size: 1.4rem;
+}
+.profile-header-right {
+  min-width: 0;
+}
+.profile-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.profile-subline {
+  margin-top: 0.25rem;
+}
 .chat-box {
   max-height: 220px;
   overflow-y: auto;
@@ -1981,6 +2604,14 @@ body {
   border-radius: 6px;
   padding: 0.45rem 0.55rem;
   background: #ffffff;
+}
+
+/* 助手页：聊天区应独立滚动，占满可用高度 */
+.assistant-chat-shell .chat-box {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
 }
 .chat-line {
   font-size: 0.9rem;
@@ -2020,7 +2651,7 @@ body {
   bottom: 0;
   height: 58px;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0;
   border-top: 1px solid #dbeafe;
   background: #ffffff;
@@ -2051,6 +2682,32 @@ body {
   font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
+}
+@media (max-width: 900px) {
+  .score-detail-layout {
+    grid-template-columns: 1fr;
+  }
+  .score-pages-scroll {
+    height: auto;
+    max-height: 62vh;
+  }
+  .score-detail-right {
+    height: auto;
+    max-height: none;
+  }
+  .assistant-layout {
+    grid-template-columns: minmax(260px, 1.4fr) minmax(0, 1fr);
+  }
+  .assistant-score-scroll {
+    max-height: 62vh;
+  }
+  .assistant-chat-shell {
+    min-height: 58vh;
+    height: 58vh;
+  }
+  .assistant-score-pane {
+    height: 58vh;
+  }
 }
 code {
   font-size: 0.85em;
