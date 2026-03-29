@@ -1,7 +1,11 @@
 <template>
   <div class="app">
-    <main
+    <div
       v-if="!isAuthenticated"
+      class="login-shell"
+      :class="{ 'login-shell--handoff-leave': loginHandoffLeaveActive }"
+    >
+    <main
       class="login-main"
       :class="{ 'login-main--intro-active': loginIntroPhase !== 'done' }"
     >
@@ -50,16 +54,20 @@
       </section>
     </main>
     <button
-      v-if="!isAuthenticated"
       type="button"
       class="login-intro-debug-btn"
       @click="replayLoginIntroDebug"
     >
       调试：重放开屏动画
     </button>
+    </div>
 
     <template v-else>
-    <div class="app-authenticated">
+    <div
+      class="app-authenticated"
+      :class="{ 'app-authenticated--handoff-enter': authAppHandoffEnterActive }"
+      @animationend="onAuthAppHandoffEnterEnd"
+    >
       <!-- 首次注册成功后：使用说明幻灯片（样式占位，文案后续替换） -->
       <Transition name="onboarding-root" @after-leave="onOnboardingRootAfterLeave">
         <div
@@ -114,12 +122,21 @@
       </Transition>
 
     <header class="header">
-      <h1>钢琴陪练 · keygent</h1>
-      <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
+      <div class="header-main">
+        <h1>钢琴陪练 · keygent</h1>
+        <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
+      </div>
+      <button type="button" class="btn small header-help-btn" @click="openHelpOnboarding">帮助</button>
     </header>
 
-    <div class="app-body-scroll">
-    <main class="main">
+    <div
+      class="app-body-scroll"
+      :class="{ 'app-body-scroll--home-locked': routeMode === 'app' && appTab === 'home' }"
+    >
+    <main
+      class="main"
+      :class="{ 'main--home-fill': routeMode === 'app' && appTab === 'home' }"
+    >
       <section v-if="routeMode === 'app' && appTab === 'profile'" class="card profile-header-card">
         <div class="profile-topbar">
           <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
@@ -143,79 +160,86 @@
         class="card library-home-section"
         :class="{ 'library-home-section--non-interactive': routeMode === 'score' && libraryUnderlayForScore }"
       >
-        <h2>首页 · 曲库</h2>
-        <div class="home-search-row">
-          <input
-            v-model="homeSearchInput"
-            class="score-id-input home-search-input"
-            placeholder="搜索曲目名称"
-            @keyup.enter="searchHomeScores"
-          />
-          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">搜索</button>
-          <button type="button" class="btn small" @click="showHomeFilters = !showHomeFilters">
-            {{ showHomeFilters ? '收起筛选' : '筛选' }}
-          </button>
-        </div>
-        <div v-if="showHomeFilters" class="home-filter-panel">
-          <div class="inline-row">
-            <label class="muted">难度</label>
-            <select v-model="scoreFilterDifficulty" class="score-id-input" style="max-width: 180px">
-              <option value="">全部</option>
-              <option v-for="d in difficultyOptions" :key="d" :value="d">{{ d }}</option>
-            </select>
+        <div class="library-home-toolbar">
+          <h2>首页 · 曲库</h2>
+          <div class="home-search-row">
             <input
-              v-model="scoreFilterAbility"
-              class="score-id-input"
-              style="max-width: 260px"
-              placeholder="能力标签，如 rhythm_control"
+              v-model="homeSearchInput"
+              class="score-id-input home-search-input"
+              placeholder="搜索曲目名称"
+              @keyup.enter="searchHomeScores"
             />
-            <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="applyHomeFilters">
-              应用筛选
+            <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">搜索</button>
+            <button type="button" class="btn small" @click="showHomeFilters = !showHomeFilters">
+              {{ showHomeFilters ? '收起筛选' : '筛选' }}
             </button>
           </div>
-        </div>
-        <p v-if="scoreLibraryError" class="error">{{ scoreLibraryError }}</p>
-        <div v-if="scoreLibraryError" class="inline-row" style="margin-top: 0.5rem">
-          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">重试加载</button>
-          <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="clearHomeFilters">
-            清空筛选/返回全部
-          </button>
-        </div>
-        <p v-else-if="scoreLibraryLoading" class="muted">曲库加载中…</p>
-        <div v-else-if="!homeScoreCards.length">
-          <p class="muted">暂无匹配曲目。</p>
-          <button
-            v-if="hasHomeFilterApplied"
-            type="button"
-            class="btn small"
-            :disabled="scoreLibraryLoading"
-            @click="clearHomeFilters"
-          >
-            清空筛选/返回全部
-          </button>
-        </div>
-        <div v-else class="home-score-grid">
-          <button
-            v-for="r in homeScoreCards"
-            :key="r.score_id"
-            type="button"
-            class="home-score-card"
-            @click="goScore(r.score_id)"
-          >
-            <img
-              v-if="!homeCoverFailedMap[r.score_id]"
-              class="home-score-cover"
-              :src="homeCoverSrc(r.score_id)"
-              :alt="`${r.title} 封面`"
-              loading="lazy"
-              @error="handleHomeCoverError(r.score_id)"
-            />
-            <div v-else class="home-score-cover home-score-cover-fallback">
-              <span class="muted">封面加载失败</span>
-              <button type="button" class="btn small" @click.stop="retryHomeCover(r.score_id)">重试</button>
+          <div v-if="showHomeFilters" class="home-filter-panel">
+            <div class="inline-row">
+              <label class="muted">难度</label>
+              <select v-model="scoreFilterDifficulty" class="score-id-input" style="max-width: 180px">
+                <option value="">全部</option>
+                <option v-for="d in difficultyOptions" :key="d" :value="d">{{ d }}</option>
+              </select>
+              <input
+                v-model="scoreFilterAbility"
+                class="score-id-input"
+                style="max-width: 260px"
+                placeholder="能力标签，如 rhythm_control"
+              />
+              <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="applyHomeFilters">
+                应用筛选
+              </button>
             </div>
-            <span class="home-score-title">{{ r.title }}</span>
-          </button>
+          </div>
+        </div>
+        <div class="library-home-list-body">
+          <p v-if="scoreLibraryError" class="error">{{ scoreLibraryError }}</p>
+          <div v-if="scoreLibraryError" class="inline-row" style="margin-top: 0.5rem">
+            <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="searchHomeScores">重试加载</button>
+            <button type="button" class="btn small" :disabled="scoreLibraryLoading" @click="clearHomeFilters">
+              清空筛选/返回全部
+            </button>
+          </div>
+          <p v-else-if="scoreLibraryLoading" class="muted">曲库加载中…</p>
+          <div v-else-if="!homeScoreCards.length">
+            <p class="muted">暂无匹配曲目。</p>
+            <button
+              v-if="hasHomeFilterApplied"
+              type="button"
+              class="btn small"
+              :disabled="scoreLibraryLoading"
+              @click="clearHomeFilters"
+            >
+              清空筛选/返回全部
+            </button>
+          </div>
+          <div v-else class="home-score-grid">
+            <button
+              v-for="r in homeScoreCards"
+              :key="r.score_id"
+              type="button"
+              class="home-score-card"
+              @click="goScore(r.score_id)"
+            >
+              <div v-if="r.isPlaceholder" class="home-score-cover home-score-cover-fallback">
+                <span class="muted">占位封面</span>
+              </div>
+              <img
+                v-else-if="!homeCoverFailedMap[r.score_id]"
+                class="home-score-cover"
+                :src="homeCoverSrc(r.score_id)"
+                :alt="`${r.title} 封面`"
+                loading="lazy"
+                @error="handleHomeCoverError(r.score_id)"
+              />
+              <div v-else class="home-score-cover home-score-cover-fallback">
+                <span class="muted">封面加载失败</span>
+                <button type="button" class="btn small" @click.stop="retryHomeCover(r.score_id)">重试</button>
+              </div>
+              <span class="home-score-title">{{ r.title }}</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -251,15 +275,25 @@
           :key="scoreId || 'score'"
           class="card score-detail-page score-detail-page--slide-overlay"
         >
-          <div class="inline-row" style="margin-bottom: 0.75rem">
+          <div class="score-detail-toolbar">
             <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
           </div>
           <p v-if="scoreMissing" class="error">曲目不存在或已被删除，请返回首页重新选择。</p>
-          <div v-else class="score-detail-layout">
+          <template v-else>
+            <div class="score-detail-layout">
             <div class="score-detail-left">
-              <p v-if="scoreImageError" class="error">{{ scoreImageError }}</p>
-              <div v-else-if="!scorePageList.length" class="muted">乐谱加载中…</div>
+              <template v-if="scoreImageError">
+                <h2 class="score-detail-title">{{ currentScoreDisplayName }}</h2>
+                <p class="error">{{ scoreImageError }}</p>
+              </template>
+              <div v-else-if="!scorePageList.length" class="score-detail-score-pane">
+                <h2 class="score-detail-title">{{ currentScoreDisplayName }}</h2>
+                <div class="score-pages-scroll">
+                  <p class="muted score-detail-loading-hint">乐谱加载中…</p>
+                </div>
+              </div>
               <div v-else class="score-detail-score-pane">
+                <h2 class="score-detail-title">{{ currentScoreDisplayName }}</h2>
                 <div class="score-pages-scroll">
                   <div v-for="page in scorePageList" :key="page" class="score-page-item">
                     <img
@@ -279,7 +313,6 @@
               </div>
             </div>
             <div class="score-detail-right">
-              <h2>{{ currentScoreDisplayName }}</h2>
               <div class="score-meta-box">
                 <p><strong>曲目画像</strong></p>
                 <p v-if="scoreMetaLoading" class="muted">加载中…</p>
@@ -292,11 +325,12 @@
                 </template>
                 <p v-else class="muted">暂无画像</p>
               </div>
-              <button type="button" class="btn primary" style="margin-top: 0.9rem" @click="startPracticeFromScore">
+              <button type="button" class="btn primary score-detail-practice-btn" @click="startPracticeFromScore">
                 开始练习
               </button>
             </div>
-          </div>
+            </div>
+          </template>
         </section>
       </Transition>
 
@@ -932,8 +966,39 @@ const loginPasswordInputEl = ref(null)
 const authLoading = ref(false)
 const authError = ref('')
 
+/** 登录成功：先淡出登录层，再进入已登录页，与引导蒙层进入动画统一时长与曲线 */
+const loginHandoffLeaveActive = ref(false)
+const authAppHandoffEnterActive = ref(false)
+const AUTH_HANDOFF_LEAVE_MS = 380
+const AUTH_HANDOFF_LEAVE_MS_REDUCED = 90
+
+async function waitLoginHandoffLeave() {
+  loginHandoffLeaveActive.value = true
+  let ms = AUTH_HANDOFF_LEAVE_MS
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      ms = AUTH_HANDOFF_LEAVE_MS_REDUCED
+    }
+  } catch {
+    /* ignore */
+  }
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+  loginHandoffLeaveActive.value = false
+}
+
+function onAuthAppHandoffEnterEnd(e) {
+  if (e.target !== e.currentTarget) return
+  const n = String(e.animationName || '')
+  if (!n.includes('appAuthHandoffIn')) return
+  authAppHandoffEnterActive.value = false
+}
+
 /** 首次注册成功后幻灯片；完成后写入 localStorage，同设备不再播放 */
 const ONBOARDING_STORAGE_KEY = 'keygent_onboarding_slides_v1_done'
+/** 测试用：true 时每次经 doAuthEntry 成功都播放引导且不写完成标记。正式逻辑为 false（仅首次注册路径 + localStorage）。 */
+const ONBOARDING_PLAY_EVERY_LOGIN_TEST = false
 const onboardingSlides = [
   {
     title: '欢迎使用 keygent',
@@ -969,10 +1034,12 @@ const showPostRegisterOnboarding = ref(false)
 const onboardingSlideIndex = ref(0)
 
 function completePostRegisterOnboarding() {
-  try {
-    localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
-  } catch {
-    /* ignore */
+  if (!ONBOARDING_PLAY_EVERY_LOGIN_TEST) {
+    try {
+      localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
+    } catch {
+      /* ignore */
+    }
   }
   showPostRegisterOnboarding.value = false
 }
@@ -984,6 +1051,11 @@ function onOnboardingRootAfterLeave() {
 }
 
 function openPostRegisterOnboardingIfNeeded(registeredNewUser) {
+  if (ONBOARDING_PLAY_EVERY_LOGIN_TEST) {
+    onboardingSlideIndex.value = 0
+    showPostRegisterOnboarding.value = true
+    return
+  }
   if (!registeredNewUser) return
   try {
     if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1') return
@@ -1008,11 +1080,15 @@ function onboardingNextOrFinish() {
   }
 }
 
-/** 调试用：直接打开引导幻灯片（不校验是否首次注册、不读 localStorage） */
-function replayPostRegisterOnboardingDebug() {
-  if (!authToken.value) return
+/** 页眉「帮助」与调试入口：打开引导幻灯片（不校验首次注册、不读 localStorage） */
+function openHelpOnboarding() {
   onboardingSlideIndex.value = 0
   showPostRegisterOnboarding.value = true
+}
+
+function replayPostRegisterOnboardingDebug() {
+  if (!authToken.value) return
+  openHelpOnboarding()
 }
 
 /** 未登录开屏：prepare → splash（大图居中）→ fly（回卡片位）→ done；已登录为 done */
@@ -1238,6 +1314,8 @@ watch(isAuthenticated, (ok, was) => {
     if (typeof document !== 'undefined') document.body.style.overflow = ''
     showPostRegisterOnboarding.value = false
     onboardingSlideIndex.value = 0
+    loginHandoffLeaveActive.value = false
+    authAppHandoffEnterActive.value = false
   }
   if (ok) {
     clearLoginIntroTimers()
@@ -1442,15 +1520,23 @@ const scorePageList = computed(() => {
   return Array.from({ length: n }, (_, i) => i + 1)
 })
 
+/** 曲库列表占位卡片（仅前端展示密度，不参与接口；点击不进入乐谱） */
+const HOME_SCORE_LIBRARY_PLACEHOLDERS = Array.from({ length: 10 }, (_, i) => ({
+  score_id: `__placeholder_${i + 1}`,
+  title: `【占位 ${i + 1}】演示曲目`,
+  isPlaceholder: true,
+}))
+
 const homeScoreCards = computed(() => {
   if (!Array.isArray(scoreLibraryRows.value)) return []
-  return scoreLibraryRows.value
+  const real = scoreLibraryRows.value
     .filter((r) => String(r?.score_id || '').trim())
     .map((r) => ({
       score_id: String(r.score_id),
       title: scoreDisplayNameByRow(r),
-      cover: getScoreImageUrl(String(r.score_id), 1),
+      isPlaceholder: false,
     }))
+  return [...real, ...HOME_SCORE_LIBRARY_PLACEHOLDERS]
 })
 const hasHomeFilterApplied = computed(() => (
   Boolean(String(homeSearchInput.value || '').trim())
@@ -1802,6 +1888,7 @@ function goScore(sid) {
     return
   }
   if (!sid) return
+  if (String(sid).startsWith('__placeholder_')) return
   window.location.hash = `#/score/${encodeURIComponent(String(sid))}`
 }
 
@@ -1840,10 +1927,12 @@ async function doRegister() {
   try {
     await authRegister(authAccountInput.value, authPasswordInput.value)
     const res = await authLogin(authAccountInput.value, authPasswordInput.value)
+    await waitLoginHandoffLeave()
     authToken.value = res.access_token || ''
     applyLoggedInUser(res.user)
     setAuthToken(authToken.value)
     localStorage.setItem('auth_token', authToken.value)
+    authAppHandoffEnterActive.value = true
   } catch (e) {
     authError.value = friendlyErrorMessage(e, '注册失败')
   } finally {
@@ -1856,10 +1945,12 @@ async function doLogin() {
   authError.value = ''
   try {
     const res = await authLogin(authAccountInput.value, authPasswordInput.value)
+    await waitLoginHandoffLeave()
     authToken.value = res.access_token || ''
     applyLoggedInUser(res.user)
     setAuthToken(authToken.value)
     localStorage.setItem('auth_token', authToken.value)
+    authAppHandoffEnterActive.value = true
   } catch (e) {
     authError.value = friendlyErrorMessage(e, '登录失败')
   } finally {
@@ -1904,11 +1995,13 @@ async function doAuthEntry() {
         throw registerErr
       }
     }
-    authToken.value = res?.access_token || ''
-    if (!authToken.value) throw new Error('登录状态异常，请重试。')
+    if (!res?.access_token) throw new Error('登录状态异常，请重试。')
+    await waitLoginHandoffLeave()
+    authToken.value = res.access_token
     applyLoggedInUser(res.user)
     setAuthToken(authToken.value)
     localStorage.setItem('auth_token', authToken.value)
+    authAppHandoffEnterActive.value = true
     goAppTab('home')
     await Promise.all([
       loadScoreLibrary(),
@@ -1934,6 +2027,8 @@ async function doLogout() {
   } catch {
     // ignore logout network errors
   } finally {
+    loginHandoffLeaveActive.value = false
+    authAppHandoffEnterActive.value = false
     authToken.value = ''
     currentAccount.value = ''
     setAuthToken('')
@@ -2526,6 +2621,54 @@ body {
 }
 .app {
   min-height: 100vh;
+  --auth-handoff-dur: 0.38s;
+  --auth-handoff-ease: cubic-bezier(0.22, 1, 0.32, 1);
+}
+.login-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  transition:
+    opacity var(--auth-handoff-dur) ease,
+    transform var(--auth-handoff-dur) var(--auth-handoff-ease);
+}
+.login-shell--handoff-leave {
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-shell {
+    transition-duration: 0.12s;
+  }
+  .login-shell--handoff-leave {
+    transform: none;
+  }
+}
+@keyframes appAuthHandoffIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.app-authenticated--handoff-enter {
+  animation: appAuthHandoffIn var(--auth-handoff-dur) var(--auth-handoff-ease) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-authenticated--handoff-enter {
+    animation-duration: 0.12s;
+  }
+  @keyframes appAuthHandoffIn {
+    from {
+      opacity: 0.55;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 .app-authenticated {
   display: flex;
@@ -2545,6 +2688,26 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
+}
+/* 首页·曲库：禁止外层滚动，仅曲目列表区域滚动 */
+.app-body-scroll--home-locked {
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.main--home-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.main--home-fill > .library-home-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
 }
 .login-main {
   min-height: 100vh;
@@ -2649,7 +2812,9 @@ body {
 }
 .onboarding-root-enter-active,
 .onboarding-root-leave-active {
-  transition: opacity 0.38s ease;
+  transition:
+    opacity var(--auth-handoff-dur) ease,
+    transform var(--auth-handoff-dur) var(--auth-handoff-ease);
 }
 .onboarding-root-leave-active {
   pointer-events: none;
@@ -2657,11 +2822,16 @@ body {
 .onboarding-root-enter-from,
 .onboarding-root-leave-to {
   opacity: 0;
+  transform: translateY(12px);
 }
 @media (prefers-reduced-motion: reduce) {
   .onboarding-root-enter-active,
   .onboarding-root-leave-active {
     transition-duration: 0.12s;
+  }
+  .onboarding-root-enter-from,
+  .onboarding-root-leave-to {
+    transform: none;
   }
 }
 .onboarding-backdrop {
@@ -2798,6 +2968,19 @@ body {
   background: #1a1a2e;
   color: #eee;
   padding: 1.25rem 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+.header-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.header-main .error {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
 }
 .header h1 {
   margin: 0 0 0.25rem 0;
@@ -2807,6 +2990,18 @@ body {
   margin: 0;
   font-size: 0.9rem;
   opacity: 0.85;
+}
+.header-help-btn {
+  flex-shrink: 0;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: inherit;
+}
+.header-help-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: inherit;
 }
 .main {
   max-width: 1000px;
@@ -2906,9 +3101,61 @@ body {
   min-height: 0;
   height: auto !important;
 }
+.score-detail-toolbar {
+  flex-shrink: 0;
+  margin-bottom: 0.15rem;
+}
+.score-detail-page h2.score-detail-title {
+  margin: 0 0 0.75rem 0;
+  font-size: clamp(1.15rem, 2vw, 1.38rem);
+  line-height: 1.32;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+.score-detail-score-pane > .score-detail-title {
+  flex-shrink: 0;
+  margin: 0 0 0.5rem 0;
+  padding: 0 0.08rem;
+}
+.score-detail-left > .score-detail-title {
+  margin: 0 0 0.5rem 0;
+}
+.score-detail-loading-hint {
+  margin: 0;
+}
 .library-home-section--non-interactive {
   pointer-events: none;
   user-select: none;
+}
+/* 曲库：顶栏固定在上；列表在卡片内滚动（高度由 main flex 填满，避免 vh 裁切） */
+.library-home-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.library-home-toolbar {
+  flex-shrink: 0;
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+.library-home-toolbar h2 {
+  margin: 0 0 0.65rem 0;
+  font-size: 1.35rem;
+}
+.library-home-toolbar .home-filter-panel {
+  margin-top: 0.65rem;
+}
+.library-home-list-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0.15rem 1rem 0;
 }
 .score-slide-from-right-enter-active,
 .score-slide-from-right-leave-active {
@@ -2925,8 +3172,8 @@ body {
 .score-detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
-  gap: 1rem;
-  align-items: start;
+  gap: 1.15rem;
+  align-items: stretch;
   height: 100%;
   min-height: 0;
 }
@@ -2951,21 +3198,40 @@ body {
   box-sizing: border-box;
 }
 .score-detail-score-pane {
-  flex: 0 1 auto;
   width: 100%;
   max-width: 100%;
+  min-height: 0;
 }
-/* 乐谱详情：按 A4 竖版比例≈一页 PDF 可视高度，多页在区域内滚动（仅此一处使用 .score-pages-scroll） */
+/* 乐谱详情滚动区（仅此模板使用 .score-pages-scroll）；窄屏保留 A4 比例上限，宽屏与右侧「开始练习」底对齐时由 flex 撑满 */
 .score-pages-scroll {
-  flex: none;
   width: 100%;
-  aspect-ratio: 210 / 297;
-  max-height: min(82vh, calc(100dvh - 260px));
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 0.25rem;
   overscroll-behavior: contain;
+}
+@media (min-width: 901px) {
+  .score-detail-left {
+    height: 100%;
+    align-self: stretch;
+  }
+  .score-detail-score-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .score-detail-score-pane .score-pages-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
+@media (max-width: 900px) {
+  .score-pages-scroll {
+    flex: none;
+    aspect-ratio: 210 / 297;
+    max-height: min(68vh, calc(100dvh - 320px));
+  }
 }
 .score-page-item {
   margin-bottom: 0.8rem;
@@ -2989,7 +3255,23 @@ body {
 .score-detail-right {
   align-self: stretch;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.score-detail-right .score-meta-box {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.score-detail-practice-btn {
+  margin-top: 0;
+  width: 100%;
+  flex-shrink: 0;
 }
 .score-id-input {
   min-width: 22rem;
@@ -3613,12 +3895,13 @@ body {
   .score-detail-layout {
     grid-template-columns: 1fr;
   }
-  .score-pages-scroll {
-    max-height: min(68vh, calc(100dvh - 280px));
-  }
   .score-detail-right {
     height: auto;
     max-height: none;
+    overflow: visible;
+  }
+  .score-detail-right .score-meta-box {
+    overflow-y: visible;
   }
   .assistant-layout--with-score:not(.assistant-layout--score-collapsed) {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
