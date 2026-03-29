@@ -68,6 +68,14 @@
       :class="{ 'app-authenticated--handoff-enter': authAppHandoffEnterActive }"
       @animationend="onAuthAppHandoffEnterEnd"
     >
+      <Transition name="post-login-questionnaire" @after-leave="onPostLoginQuestionnaireAfterLeave">
+        <div v-if="showPostLoginQuestionnaire" class="post-login-questionnaire-root">
+          <PostLoginOnboarding
+            :preview-mode="false"
+            @complete="onPostLoginQuestionnaireDone"
+          />
+        </div>
+      </Transition>
       <!-- 首次注册成功后：使用说明幻灯片（样式占位，文案后续替换） -->
       <Transition name="onboarding-root" @after-leave="onOnboardingRootAfterLeave">
         <div
@@ -897,13 +905,14 @@
       <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
       <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
     </nav>
-    <button
-      type="button"
-      class="login-intro-debug-btn onboarding-debug-btn"
-      @click="replayPostRegisterOnboardingDebug"
-    >
-      调试：播放引导幻灯片
-    </button>
+    <div class="app-debug-floating-actions">
+      <button type="button" class="login-intro-debug-btn" @click="openPostLoginQuestionnaireDebug">
+        调试：登录问卷
+      </button>
+      <button type="button" class="login-intro-debug-btn" @click="replayPostRegisterOnboardingDebug">
+        调试：播放引导幻灯片
+      </button>
+    </div>
     </div>
     </template>
   </div>
@@ -911,6 +920,7 @@
 
 <script setup>
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import PostLoginOnboarding from './components/post-login-onboarding/PostLoginOnboarding.vue'
 import {
   uploadScore,
   getScoreTechniques,
@@ -992,9 +1002,16 @@ function onAuthAppHandoffEnterEnd(e) {
   authAppHandoffEnterActive.value = false
 }
 
-/** 首次注册成功后幻灯片；完成后写入 localStorage，同设备不再播放 */
+/** 首次注册成功后幻灯片；完成后写入 localStorage（按用户区分，避免同机多账号或帮助入口误伤） */
 const ONBOARDING_STORAGE_KEY = 'keygent_onboarding_slides_v1_done'
-/** 测试用：true 时每次经 doAuthEntry 成功都播放引导且不写完成标记。正式逻辑为 false（仅首次注册路径 + localStorage）。 */
+
+function onboardingSlidesDoneStorageKey() {
+  const id = String(currentUserId.value || '').trim()
+  const acc = String(currentAccount.value || '').trim()
+  const tail = id && id !== 'default' ? id : acc || 'anon'
+  return `${ONBOARDING_STORAGE_KEY}:${tail}`
+}
+/** 测试用：true 时新用户注册路径下问卷结束后总接引导幻灯片且不写完成标记。问卷本身仅在新用户注册时出现。正式为 false。 */
 const ONBOARDING_PLAY_EVERY_LOGIN_TEST = false
 const onboardingSlides = [
   {
@@ -1028,12 +1045,15 @@ const onboardingSlides = [
   },
 ]
 const showPostRegisterOnboarding = ref(false)
+const showPostLoginQuestionnaire = ref(false)
+/** 问卷结束后是否接着打开引导幻灯片（由 shouldOpenSlidesAfterQuestionnaire 赋值） */
+const pendingSlidesAfterPostLoginQuestionnaire = ref(false)
 const onboardingSlideIndex = ref(0)
 
 function completePostRegisterOnboarding() {
   if (!ONBOARDING_PLAY_EVERY_LOGIN_TEST) {
     try {
-      localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
+      localStorage.setItem(onboardingSlidesDoneStorageKey(), '1')
     } catch {
       /* ignore */
     }
@@ -1047,18 +1067,37 @@ function onOnboardingRootAfterLeave() {
   if (typeof document !== 'undefined') document.body.style.overflow = ''
 }
 
-function openPostRegisterOnboardingIfNeeded(registeredNewUser) {
-  if (ONBOARDING_PLAY_EVERY_LOGIN_TEST) {
-    onboardingSlideIndex.value = 0
-    showPostRegisterOnboarding.value = true
-    return
-  }
-  if (!registeredNewUser) return
+/** 问卷结束后是否接着打开引导幻灯片：仅新注册路径；按当前用户是否已标记完成（非全局键） */
+function shouldOpenSlidesAfterQuestionnaire(registeredNewUser) {
+  if (ONBOARDING_PLAY_EVERY_LOGIN_TEST) return true
+  if (!registeredNewUser) return false
   try {
-    if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1') return
+    if (localStorage.getItem(onboardingSlidesDoneStorageKey()) === '1') return false
   } catch {
+    /* ignore */
+  }
+  return true
+}
+
+/** 仅本次走「注册并登录」的新用户：先问卷，再按 shouldOpenSlidesAfterQuestionnaire 决定是否播引导幻灯片；老用户登录直接进入首页 */
+function openPostRegisterOnboardingIfNeeded(registeredNewUser) {
+  if (!registeredNewUser) {
+    pendingSlidesAfterPostLoginQuestionnaire.value = false
+    showPostLoginQuestionnaire.value = false
     return
   }
+  pendingSlidesAfterPostLoginQuestionnaire.value = shouldOpenSlidesAfterQuestionnaire(registeredNewUser)
+  showPostLoginQuestionnaire.value = true
+}
+
+function onPostLoginQuestionnaireDone() {
+  showPostLoginQuestionnaire.value = false
+  // 若需接幻灯片，保留 pending 至问卷 leave 结束后再打开（见 onPostLoginQuestionnaireAfterLeave）
+}
+
+function onPostLoginQuestionnaireAfterLeave() {
+  if (!pendingSlidesAfterPostLoginQuestionnaire.value) return
+  pendingSlidesAfterPostLoginQuestionnaire.value = false
   onboardingSlideIndex.value = 0
   showPostRegisterOnboarding.value = true
 }
@@ -1086,6 +1125,13 @@ function openHelpOnboarding() {
 function replayPostRegisterOnboardingDebug() {
   if (!authToken.value) return
   openHelpOnboarding()
+}
+
+/** 调试用：随时打开登录问卷，结束后不自动进入引导幻灯片 */
+function openPostLoginQuestionnaireDebug() {
+  if (!authToken.value) return
+  pendingSlidesAfterPostLoginQuestionnaire.value = false
+  showPostLoginQuestionnaire.value = true
 }
 
 /** 未登录开屏：prepare → splash（大图居中）→ fly（回卡片位）→ done；已登录为 done */
@@ -1309,6 +1355,8 @@ const isAuthenticated = computed(() => Boolean(authToken.value))
 watch(isAuthenticated, (ok, was) => {
   if (!ok) {
     if (typeof document !== 'undefined') document.body.style.overflow = ''
+    showPostLoginQuestionnaire.value = false
+    pendingSlidesAfterPostLoginQuestionnaire.value = false
     showPostRegisterOnboarding.value = false
     onboardingSlideIndex.value = 0
     loginHandoffLeaveActive.value = false
@@ -1327,10 +1375,16 @@ watch(isAuthenticated, (ok, was) => {
   }
 })
 
-watch(showPostRegisterOnboarding, (open) => {
-  if (typeof document === 'undefined') return
-  if (open) document.body.style.overflow = 'hidden'
-})
+watch(
+  () =>
+    showPostRegisterOnboarding.value
+    || showPostLoginQuestionnaire.value
+    || pendingSlidesAfterPostLoginQuestionnaire.value,
+  (lock) => {
+    if (typeof document === 'undefined') return
+    document.body.style.overflow = lock ? 'hidden' : ''
+  },
+)
 const chatLoading = ref(false)
 const chatError = ref('')
 const chatInput = ref('')
@@ -1989,14 +2043,14 @@ async function doAuthEntry() {
     setAuthToken(authToken.value)
     localStorage.setItem('auth_token', authToken.value)
     authAppHandoffEnterActive.value = true
+    openPostRegisterOnboardingIfNeeded(cameThroughRegister)
     goAppTab('home')
-    await Promise.all([
+    void Promise.all([
       loadScoreLibrary(),
       loadPracticeSummary(),
       loadPracticeSessionsList(),
       loadAssistantThread(),
     ])
-    openPostRegisterOnboardingIfNeeded(cameThroughRegister)
   } catch (e) {
     authError.value = friendlyErrorMessage(e, '登录/注册失败')
   } finally {
@@ -2760,8 +2814,21 @@ body {
   border-color: #94a3b8;
 }
 /* 已登录底栏 58px，调试按钮抬高避免遮挡 */
-.onboarding-debug-btn {
+.app-debug-floating-actions {
+  position: fixed;
+  left: 50%;
   bottom: calc(58px + max(0.75rem, env(safe-area-inset-bottom, 0px)));
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: auto;
+}
+.app-debug-floating-actions .login-intro-debug-btn {
+  position: static;
+  transform: none;
 }
 .login-title {
   margin: 0 0 0.35rem 0;
@@ -2782,6 +2849,30 @@ body {
 }
 .login-btn {
   width: 100%;
+}
+
+/* 登录后问卷：在引导幻灯片之前全屏展示 */
+.post-login-questionnaire-root {
+  position: fixed;
+  inset: 0;
+  z-index: 510;
+  overflow: auto;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+.post-login-questionnaire-enter-active,
+.post-login-questionnaire-leave-active {
+  transition: opacity 0.32s ease;
+}
+.post-login-questionnaire-enter-from,
+.post-login-questionnaire-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-login-questionnaire-enter-active,
+  .post-login-questionnaire-leave-active {
+    transition: opacity 0.15s ease;
+  }
 }
 
 /* 首次注册后：使用说明幻灯片（与登录卡片风格对齐） */
@@ -3843,26 +3934,163 @@ body {
   border-color: #fecaca;
   background: #fef2f2;
 }
+/* 底栏：与 BottomTabsPiano 一致的钢琴键视觉（无额外 DOM / 无行为变更） */
 .bottom-tabs {
   flex-shrink: 0;
   width: 100%;
-  height: 58px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  min-height: 58px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   gap: 0;
-  border-top: 1px solid #dbeafe;
-  background: #ffffff;
+  margin: 0;
+  padding: 0 0 max(0px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #e8ecf0;
+  background: linear-gradient(180deg, #fcfcfd 0%, #fafafa 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 -3px 14px rgba(148, 163, 184, 0.05);
   z-index: 30;
+  box-sizing: border-box;
 }
 .tab-btn {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+  margin: 0;
+  padding: 0.68rem 0.42rem 0.82rem;
   border: none;
-  background: transparent;
-  font-size: 0.9rem;
+  border-right: 1px solid rgba(186, 198, 214, 0.45);
+  border-radius: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.25;
   color: #475569;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #fefefe 22%,
+    #fafbfc 55%,
+    #f6f7f9 100%
+  );
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 0 #e8e8ef,
+    0 3px 8px rgba(148, 163, 184, 0.07);
+  transform-origin: center bottom;
+  transition:
+    color 0.2s ease,
+    transform 0.09s cubic-bezier(0.22, 1, 0.32, 1),
+    background 0.2s ease,
+    box-shadow 0.09s cubic-bezier(0.22, 1, 0.32, 1);
+}
+.tab-btn:first-child {
+  border-left: 1px solid rgba(186, 198, 214, 0.45);
+}
+.tab-btn:last-child {
+  border-right: none;
+}
+.tab-btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  background: #60a5fa;
+  transition:
+    opacity 0.2s ease,
+    background 0.15s ease,
+    top 0.09s ease,
+    height 0.09s ease;
+}
+.tab-btn.active::before {
+  opacity: 1;
+  background: #2563eb;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 3px 10px rgba(37, 99, 235, 0.22);
+}
+.tab-btn:active::before {
+  opacity: 1;
+  background: #93c5fd;
+  top: 1px;
+  height: 2px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+.tab-btn.active:active::before {
+  background: #1d4ed8;
+  top: 1px;
+  height: 2px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 6px rgba(30, 64, 175, 0.2);
+}
+.tab-btn:hover {
+  color: #334155;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #fcfcfd 30%,
+    #f8f9fb 100%
+  );
+  box-shadow:
+    inset 0 2px 5px rgba(255, 255, 255, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.62),
+    0 2px 0 #ececf2,
+    0 4px 12px rgba(148, 163, 184, 0.08);
+}
+.tab-btn:active {
+  transform: translateY(3px) scaleY(0.97);
+  box-shadow:
+    inset 0 5px 12px rgba(148, 163, 184, 0.07),
+    inset 0 2px 4px rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 #e2e2ea,
+    0 1px 4px rgba(148, 163, 184, 0.05);
 }
 .tab-btn.active {
-  color: #2563eb;
+  color: #1d4ed8;
   font-weight: 600;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #f8fbff 35%,
+    #eff6ff 100%
+  );
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.98),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.58),
+    inset 0 -18px 28px -14px rgba(37, 99, 235, 0.05),
+    0 2px 0 #dbeafe,
+    0 3px 10px rgba(37, 99, 235, 0.1);
+}
+.tab-btn.active:active {
+  box-shadow:
+    inset 0 5px 14px rgba(30, 64, 175, 0.06),
+    inset 0 2px 4px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4),
+    0 0 0 #bfdbfe,
+    0 1px 4px rgba(37, 99, 235, 0.07);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-btn {
+    transition: color 0.15s ease;
+  }
+  .tab-btn:active {
+    transform: none;
+  }
 }
 .task-list {
   margin: 0.4rem 0 0 1.2rem;
