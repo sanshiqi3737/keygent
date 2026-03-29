@@ -222,11 +222,8 @@
               class="home-score-card"
               @click="goScore(r.score_id)"
             >
-              <div v-if="r.isPlaceholder" class="home-score-cover home-score-cover-fallback">
-                <span class="muted">占位封面</span>
-              </div>
               <img
-                v-else-if="!homeCoverFailedMap[r.score_id]"
+                v-if="!homeCoverFailedMap[r.score_id]"
                 class="home-score-cover"
                 :src="homeCoverSrc(r.score_id)"
                 :alt="`${r.title} 封面`"
@@ -1520,23 +1517,14 @@ const scorePageList = computed(() => {
   return Array.from({ length: n }, (_, i) => i + 1)
 })
 
-/** 曲库列表占位卡片（仅前端展示密度，不参与接口；点击不进入乐谱） */
-const HOME_SCORE_LIBRARY_PLACEHOLDERS = Array.from({ length: 10 }, (_, i) => ({
-  score_id: `__placeholder_${i + 1}`,
-  title: `【占位 ${i + 1}】演示曲目`,
-  isPlaceholder: true,
-}))
-
 const homeScoreCards = computed(() => {
   if (!Array.isArray(scoreLibraryRows.value)) return []
-  const real = scoreLibraryRows.value
+  return scoreLibraryRows.value
     .filter((r) => String(r?.score_id || '').trim())
     .map((r) => ({
       score_id: String(r.score_id),
       title: scoreDisplayNameByRow(r),
-      isPlaceholder: false,
     }))
-  return [...real, ...HOME_SCORE_LIBRARY_PLACEHOLDERS]
 })
 const hasHomeFilterApplied = computed(() => (
   Boolean(String(homeSearchInput.value || '').trim())
@@ -1888,7 +1876,6 @@ function goScore(sid) {
     return
   }
   if (!sid) return
-  if (String(sid).startsWith('__placeholder_')) return
   window.location.hash = `#/score/${encodeURIComponent(String(sid))}`
 }
 
@@ -2994,14 +2981,16 @@ body {
 .header-help-btn {
   flex-shrink: 0;
   margin: 0;
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.35);
-  color: inherit;
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(26, 26, 46, 0.35);
+  color: #1a1a2e;
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
 }
 .header-help-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-  color: inherit;
+  background: #ffffff;
+  border-color: #1a1a2e;
+  color: #1a1a2e;
 }
 .main {
   max-width: 1000px;
