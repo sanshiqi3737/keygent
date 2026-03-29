@@ -1,46 +1,71 @@
 <template>
   <div class="app">
-    <main v-if="!isAuthenticated" class="login-main">
-      <section class="login-card">
-        <img class="login-logo" src="/keygent-logo.png" alt="keygent logo" />
-        <h1 class="login-title">钢琴陪练</h1>
-        <p class="muted login-sub">登录后可进入首页并使用全部功能</p>
-        <div class="form-row">
-          <label>用户名</label>
-          <input
-            v-model="authAccountInput"
-            class="score-id-input login-input"
-            placeholder="请输入用户名"
-            maxlength="128"
-            @keyup.enter="doAuthEntry"
+    <main
+      v-if="!isAuthenticated"
+      class="login-main"
+      :class="{ 'login-main--intro-active': loginIntroPhase !== 'done' }"
+    >
+      <section class="login-card" :style="loginCardMinH ? { minHeight: loginCardMinH } : undefined">
+        <div class="login-logo-slot" :style="loginLogoSlotMinH ? { minHeight: loginLogoSlotMinH } : undefined">
+          <img
+            ref="loginLogoImgRef"
+            class="login-logo"
+            :style="loginLogoFlyStyle"
+            src="/keygent-logo.png"
+            alt="keygent logo"
           />
-          <p class="muted hint-line">至少 3 个字符</p>
         </div>
-        <div class="form-row">
-          <label>密码</label>
-          <input
-            v-model="authPasswordInput"
-            class="score-id-input login-input"
-            type="password"
-            placeholder="请输入密码"
-            maxlength="128"
-            @keyup.enter="doAuthEntry"
-          />
-          <p class="muted hint-line">至少 6 个字符</p>
+        <div class="login-rest" :class="{ 'login-rest--intro-show': loginIntroPhase === 'done' }">
+          <h1 class="login-title">钢琴陪练</h1>
+          <p class="muted login-sub">登录后可进入首页并使用全部功能</p>
+          <div class="form-row">
+            <label>用户名</label>
+            <input
+              v-model="authAccountInput"
+              class="score-id-input login-input"
+              placeholder="请输入用户名"
+              maxlength="128"
+              @keyup.enter="focusLoginPassword"
+            />
+            <p class="muted hint-line">至少 3 个字符</p>
+          </div>
+          <div class="form-row">
+            <label>密码</label>
+            <input
+              ref="loginPasswordInputEl"
+              v-model="authPasswordInput"
+              class="score-id-input login-input"
+              type="password"
+              placeholder="请输入密码"
+              maxlength="128"
+              @keyup.enter="doAuthEntry"
+            />
+            <p class="muted hint-line">至少 6 个字符</p>
+          </div>
+          <button type="button" class="btn primary login-btn" :disabled="authLoading" @click="doAuthEntry">
+            {{ authLoading ? '处理中…' : '登录 / 注册' }}
+          </button>
+          <p v-if="authError" class="error">{{ authError }}</p>
         </div>
-        <button type="button" class="btn primary login-btn" :disabled="authLoading" @click="doAuthEntry">
-          {{ authLoading ? '处理中…' : '登录 / 注册' }}
-        </button>
-        <p v-if="authError" class="error">{{ authError }}</p>
       </section>
     </main>
+    <button
+      v-if="!isAuthenticated"
+      type="button"
+      class="login-intro-debug-btn"
+      @click="replayLoginIntroDebug"
+    >
+      调试：重放开屏动画
+    </button>
 
     <template v-else>
+    <div class="app-authenticated">
     <header class="header">
       <h1>钢琴陪练 · keygent</h1>
       <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
     </header>
 
+    <div class="app-body-scroll">
     <main class="main">
       <section v-if="routeMode === 'app' && appTab === 'profile'" class="card profile-header-card">
         <div class="profile-topbar">
@@ -60,7 +85,11 @@
         </div>
       </section>
 
-      <section v-if="routeMode === 'app' && appTab === 'home'" class="card library-home-section">
+      <section
+        v-show="showLibraryUnderScoreSlide"
+        class="card library-home-section"
+        :class="{ 'library-home-section--non-interactive': routeMode === 'score' && libraryUnderlayForScore }"
+      >
         <h2>首页 · 曲库</h2>
         <div class="home-search-row">
           <input
@@ -163,52 +192,60 @@
         <p v-if="scoreId" class="success">已加载曲目：{{ currentScoreDisplayName }}</p>
       </section>
 
-      <section v-if="routeMode === 'score'" class="card score-detail-page">
-        <div class="inline-row" style="margin-bottom: 0.75rem">
-          <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
-        </div>
-        <p v-if="scoreMissing" class="error">曲目不存在或已被删除，请返回首页重新选择。</p>
-        <div v-else class="score-detail-layout">
-          <div class="score-detail-left">
-            <p v-if="scoreImageError" class="error">{{ scoreImageError }}</p>
-            <div v-else-if="!scorePageList.length" class="muted">乐谱加载中…</div>
-            <div v-else class="score-pages-scroll">
-              <div v-for="page in scorePageList" :key="page" class="score-page-item">
-                <img
-                  v-if="!scorePageFailedMap[page]"
-                  class="score-page-image"
-                  :src="scorePageImageSrc(page)"
-                  :alt="`第 ${page} 页`"
-                  loading="lazy"
-                  @error="handleScorePageError(page)"
-                />
-                <div v-else class="score-page-image score-page-fallback">
-                  <span class="muted">第 {{ page }} 页加载失败</span>
-                  <button type="button" class="btn small" @click="retryScorePage(page)">重试</button>
+      <Transition name="score-slide-from-right" @after-enter="onScoreSlideAfterEnter">
+        <section
+          v-if="routeMode === 'score'"
+          :key="scoreId || 'score'"
+          class="card score-detail-page score-detail-page--slide-overlay"
+        >
+          <div class="inline-row" style="margin-bottom: 0.75rem">
+            <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
+          </div>
+          <p v-if="scoreMissing" class="error">曲目不存在或已被删除，请返回首页重新选择。</p>
+          <div v-else class="score-detail-layout">
+            <div class="score-detail-left">
+              <p v-if="scoreImageError" class="error">{{ scoreImageError }}</p>
+              <div v-else-if="!scorePageList.length" class="muted">乐谱加载中…</div>
+              <div v-else class="score-detail-score-pane">
+                <div class="score-pages-scroll">
+                  <div v-for="page in scorePageList" :key="page" class="score-page-item">
+                    <img
+                      v-if="!scorePageFailedMap[page]"
+                      class="score-page-image"
+                      :src="scorePageImageSrc(page)"
+                      :alt="`第 ${page} 页`"
+                      loading="lazy"
+                      @error="handleScorePageError(page)"
+                    />
+                    <div v-else class="score-page-image score-page-fallback">
+                      <span class="muted">第 {{ page }} 页加载失败</span>
+                      <button type="button" class="btn small" @click="retryScorePage(page)">重试</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="score-detail-right">
-            <h2>{{ currentScoreDisplayName }}</h2>
-            <div class="score-meta-box">
-              <p><strong>曲目画像</strong></p>
-              <p v-if="scoreMetaLoading" class="muted">加载中…</p>
-              <p v-else-if="scoreMetaError" class="error">{{ scoreMetaError }}</p>
-              <template v-else-if="scoreMeta">
-                <p><strong>标题：</strong>{{ scoreMeta.title || '未命名' }}</p>
-                <p><strong>难度：</strong>{{ scoreMeta.difficulty || 'unknown' }}</p>
-                <p v-if="scoreMeta.abilities?.length"><strong>训练能力：</strong>{{ scoreMeta.abilities.join('、') }}</p>
-                <p v-if="scoreMeta.assessment?.reason" class="muted">依据：{{ scoreMeta.assessment.reason }}</p>
-              </template>
-              <p v-else class="muted">暂无画像</p>
+            <div class="score-detail-right">
+              <h2>{{ currentScoreDisplayName }}</h2>
+              <div class="score-meta-box">
+                <p><strong>曲目画像</strong></p>
+                <p v-if="scoreMetaLoading" class="muted">加载中…</p>
+                <p v-else-if="scoreMetaError" class="error">{{ scoreMetaError }}</p>
+                <template v-else-if="scoreMeta">
+                  <p><strong>标题：</strong>{{ scoreMeta.title || '未命名' }}</p>
+                  <p><strong>难度：</strong>{{ scoreMeta.difficulty || 'unknown' }}</p>
+                  <p v-if="scoreMeta.abilities?.length"><strong>训练能力：</strong>{{ scoreMeta.abilities.join('、') }}</p>
+                  <p v-if="scoreMeta.assessment?.reason" class="muted">依据：{{ scoreMeta.assessment.reason }}</p>
+                </template>
+                <p v-else class="muted">暂无画像</p>
+              </div>
+              <button type="button" class="btn primary" style="margin-top: 0.9rem" @click="startPracticeFromScore">
+                开始练习
+              </button>
             </div>
-            <button type="button" class="btn primary" style="margin-top: 0.9rem" @click="startPracticeFromScore">
-              开始练习
-            </button>
           </div>
-        </div>
-      </section>
+        </section>
+      </Transition>
 
       <section v-if="routeMode === 'app' && appTab === 'practice'" class="card">
         <h2>1. 选择练习曲目（搜索曲库）</h2>
@@ -404,13 +441,7 @@
       <!-- 近期练习概况（对接 GET /api/practice/summary） -->
       <section v-if="routeMode === 'app' && appTab === 'profile'" class="card summary-section">
         <h2>练习记录</h2>
-        <div class="form-row inline-row">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="summaryOnlyCurrentScore" :disabled="!scoreId" />
-            仅统计当前乐谱（需先上传得到 ID）
-          </label>
-        </div>
-        <div class="form-row inline-row">
+        <div class="form-row inline-row summary-profile-controls">
           <label>最近条数</label>
           <input v-model.number="summaryLastN" type="number" min="1" max="200" class="input-narrow" />
           <button type="button" class="btn small" :disabled="summaryLoading" @click="loadPracticeSummary">
@@ -419,17 +450,14 @@
         </div>
         <p v-if="summaryError" class="error">{{ summaryError }}</p>
         <div v-else-if="practiceSummary" class="summary-box">
-          <template v-if="practiceSummary.window_sessions === 0">
-            <p class="muted">暂无会话（请先勾选「保存练习记录」并完成一次比对）。</p>
-          </template>
-          <template v-else>
-            <p>
-              <strong>窗口内会话数：</strong>{{ practiceSummary.window_sessions }}
-              <span class="muted">（请求最近 {{ practiceSummary.last_n_requested }} 条）</span>
-            </p>
-            <p v-if="practiceSummary.latest_session_at" class="muted">
-              最近一条时间：{{ practiceSummary.latest_session_at }}
-            </p>
+          <p>
+            <strong>窗口内会话数：</strong>{{ practiceSummary.window_sessions }}
+            <span class="muted">（请求最近 {{ practiceSummary.last_n_requested }} 条）</span>
+          </p>
+          <p v-if="practiceSummary.latest_session_at" class="muted">
+            最近一条时间：{{ practiceSummary.latest_session_at }}
+          </p>
+          <template v-if="practiceSummary.window_sessions > 0">
             <template v-if="practiceSummary.accuracy">
               <p>
                 <strong>准确率</strong> 最新 {{ (practiceSummary.accuracy.latest * 100).toFixed(1) }}% ·
@@ -491,7 +519,7 @@
             </div>
           </template>
         </div>
-        <div class="summary-box" style="margin-top: 0.8rem">
+        <div class="summary-box summary-box--records">
           <div class="inline-row">
             <strong>最近练习记录（可删除音频）</strong>
             <button type="button" class="btn small" :disabled="practiceSessionsLoading" @click="loadPracticeSessionsList">
@@ -552,10 +580,23 @@
       </section>
 
       <section v-if="routeMode === 'app' && appTab === 'assistant'" class="card assistant-section">
-        <h2>keygent</h2>
         <div class="assistant-topbar">
-          <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
-          <button type="button" class="btn small" @click="refreshAssistantPanel">刷新</button>
+          <div class="assistant-topbar-left">
+            <button type="button" class="btn small" @click="goAppTab('home')">返回</button>
+            <button
+              v-if="scoreId && !assistantShowScorePanel"
+              type="button"
+              class="btn small"
+              :disabled="assistantOverlayPhase !== 'idle'"
+              @click="beginOpenScorePanelAnim"
+            >
+              显示乐谱
+            </button>
+          </div>
+          <h2 class="assistant-header-title">keygent</h2>
+          <div class="assistant-topbar-right">
+            <button type="button" class="btn small" @click="refreshAssistantPanel">刷新</button>
+          </div>
         </div>
 
         <input ref="assistantPdfInputEl" type="file" accept=".pdf" style="display: none" @change="onAssistantPdfPicked" />
@@ -567,11 +608,25 @@
           @change="onAssistantReferencePicked"
         />
 
-        <div class="assistant-layout">
-          <aside v-if="scoreId && assistantShowScorePanel" class="assistant-score-pane">
+        <div
+          ref="assistantLayoutEl"
+          class="assistant-layout"
+          :class="{
+            'assistant-layout--with-score': !!scoreId && assistantShowScorePanel,
+            'assistant-layout--score-collapsed': !!scoreId && !assistantShowScorePanel,
+          }"
+        >
+          <aside v-if="scoreId && assistantShowScorePanel" ref="assistantScorePaneEl" class="assistant-score-pane">
             <div class="assistant-score-pane-head">
               <strong>{{ currentScoreDisplayName }}</strong>
-              <button type="button" class="assistant-close-btn" @click="assistantShowScorePanel = false">×</button>
+              <button
+                type="button"
+                class="assistant-close-btn"
+                :disabled="assistantOverlayPhase !== 'idle'"
+                @click="beginCloseScorePanelAnim"
+              >
+                ×
+              </button>
             </div>
             <div class="assistant-score-scroll">
               <img
@@ -585,7 +640,13 @@
             </div>
           </aside>
 
-          <div class="assistant-chat-pane">
+          <div class="assistant-chat-slot">
+            <div
+              ref="assistantChatPaneEl"
+              class="assistant-chat-pane"
+              :class="{ 'assistant-chat-pane--overlay-active': assistantOverlayPhase !== 'idle' }"
+              :style="assistantChatOverlayStyle || undefined"
+            >
             <div class="assistant-plan" v-if="scoreId">
               <p><strong>练习设置</strong></p>
               <div class="inline-row">
@@ -741,21 +802,24 @@
                 </button>
               </div>
             </div>
+            </div>
           </div>
         </div>
       </section>
-      <nav v-if="routeMode === 'app' && appTab !== 'assistant' && appTab !== 'profile'" class="bottom-tabs">
-        <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页·曲库</button>
-        <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
-        <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
-      </nav>
     </main>
+    </div>
+    <nav v-if="routeMode === 'app'" class="bottom-tabs">
+      <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页·曲库</button>
+      <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
+      <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
+    </nav>
+    </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import {
   uploadScore,
   getScoreTechniques,
@@ -786,16 +850,164 @@ import {
   setAuthToken,
 } from './api.js'
 
+function peekAuthToken() {
+  try {
+    return typeof localStorage !== 'undefined'
+      ? String(localStorage.getItem('auth_token') || '').trim()
+      : ''
+  } catch {
+    return ''
+  }
+}
+
 const pdfFile = ref(null)
 const musicxmlFile = ref(null)
 const audioFile = ref(null)
 const currentUserId = ref('default')
 const currentAccount = ref('')
-const authToken = ref('')
+const authToken = ref(peekAuthToken())
 const authAccountInput = ref('')
 const authPasswordInput = ref('')
+const loginPasswordInputEl = ref(null)
 const authLoading = ref(false)
 const authError = ref('')
+
+/** 未登录开屏：prepare → splash（大图居中）→ fly（回卡片位）→ done；已登录为 done */
+const LOGIN_INTRO_SPLASH_MS = 320
+const LOGIN_INTRO_FLY_MS = 640
+const LOGIN_INTRO_FLY_EASE = 'cubic-bezier(0.22, 1, 0.32, 1)'
+const loginIntroPhase = ref(authToken.value ? 'done' : 'prepare')
+const loginLogoSlotMinH = ref(null)
+const loginCardMinH = ref(null)
+const loginLogoFlyStyle = ref({})
+const loginLogoImgRef = ref(null)
+let loginIntroTimers = []
+let loginIntroFlyEndCleanup = null
+
+function clearLoginIntroTimers() {
+  loginIntroTimers.forEach((id) => window.clearTimeout(id))
+  loginIntroTimers = []
+  if (loginIntroFlyEndCleanup) {
+    loginIntroFlyEndCleanup()
+    loginIntroFlyEndCleanup = null
+  }
+}
+
+function finishLoginIntro() {
+  loginIntroPhase.value = 'done'
+  loginLogoFlyStyle.value = {}
+  /* 保留 slot / 卡片 min-height，避免动画结束撤掉占位后白盒高度跳变 */
+}
+
+/** 调试用：强制播完整开屏（忽略 prefers-reduced-motion） */
+function replayLoginIntroDebug() {
+  if (authToken.value) return
+  runLoginIntro({ force: true })
+}
+
+function runLoginIntro(opts = {}) {
+  const forceAnim = opts.force === true
+  if (typeof window === 'undefined') return
+  if (authToken.value) {
+    finishLoginIntro()
+    return
+  }
+  if (!forceAnim) {
+    try {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finishLoginIntro()
+        return
+      }
+    } catch {
+      finishLoginIntro()
+      return
+    }
+  }
+
+  clearLoginIntroTimers()
+  loginIntroPhase.value = 'prepare'
+  loginLogoFlyStyle.value = {}
+  loginLogoSlotMinH.value = null
+
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const img = loginLogoImgRef.value
+      if (!img) {
+        finishLoginIntro()
+        return
+      }
+      const endRect = img.getBoundingClientRect()
+      if (endRect.width < 4 || endRect.height < 4) {
+        finishLoginIntro()
+        return
+      }
+
+      const slotEl = img.parentElement
+      const slotH = slotEl ? slotEl.getBoundingClientRect().height : endRect.height
+      loginLogoSlotMinH.value = `${Math.ceil(slotH)}px`
+      const cardEl = img.closest('.login-card')
+      if (cardEl) {
+        const h = cardEl.getBoundingClientRect().height
+        if (h > 0) loginCardMinH.value = `${Math.ceil(h)}px`
+      }
+      const splashW = Math.min(300, Math.max(200, window.innerWidth * 0.5))
+      const startCenterY = window.innerHeight / 2
+      const endCenterY = endRect.top + endRect.height / 2
+
+      loginLogoFlyStyle.value = {
+        position: 'fixed',
+        left: '50%',
+        top: `${startCenterY}px`,
+        width: `${splashW}px`,
+        transform: 'translate(-50%, -50%)',
+        zIndex: '100',
+        transition: 'none',
+      }
+      loginIntroPhase.value = 'splash'
+      void img.offsetWidth
+
+      loginIntroTimers.push(
+        window.setTimeout(() => {
+          loginIntroPhase.value = 'fly'
+          loginLogoFlyStyle.value = {
+            position: 'fixed',
+            left: '50%',
+            top: `${endCenterY}px`,
+            width: `${endRect.width}px`,
+            transform: 'translate(-50%, -50%)',
+            zIndex: '100',
+            transition: `top ${LOGIN_INTRO_FLY_MS}ms ${LOGIN_INTRO_FLY_EASE}, width ${LOGIN_INTRO_FLY_MS}ms ${LOGIN_INTRO_FLY_EASE}`,
+          }
+
+          let settled = false
+          let flyDoneTimer = null
+          const onTrans = (e) => {
+            if (e.target !== img) return
+            if (!['top', 'width'].includes(e.propertyName)) return
+            settle()
+          }
+          const settle = () => {
+            if (settled) return
+            settled = true
+            if (flyDoneTimer != null) {
+              window.clearTimeout(flyDoneTimer)
+              flyDoneTimer = null
+            }
+            img.removeEventListener('transitionend', onTrans)
+            loginIntroFlyEndCleanup = null
+            finishLoginIntro()
+          }
+          loginIntroFlyEndCleanup = () => {
+            img.removeEventListener('transitionend', onTrans)
+          }
+          img.addEventListener('transitionend', onTrans)
+          flyDoneTimer = window.setTimeout(settle, LOGIN_INTRO_FLY_MS + 100)
+          loginIntroTimers.push(flyDoneTimer)
+        }, LOGIN_INTRO_SPLASH_MS),
+      )
+    })
+  })
+}
 const scoreId = ref(null)
 const manualScoreId = ref('')
 const recentScores = ref([])
@@ -827,7 +1039,6 @@ const focusEndMeasure = ref('')
 const practiceSummary = ref(null)
 const summaryLoading = ref(false)
 const summaryError = ref('')
-const summaryOnlyCurrentScore = ref(false)
 const summaryLastN = ref(30)
 const practiceSessionsList = ref([])
 const practiceSessionsLoading = ref(false)
@@ -868,7 +1079,30 @@ const reassessAllResult = ref(null)
 const reassessAllError = ref('')
 const routeMode = ref('app')
 const appTab = ref('home')
+/** 从曲库进乐谱时短暂保留曲库 DOM，供滑入层覆盖 */
+const libraryUnderlayForScore = ref(false)
+const showLibraryUnderScoreSlide = computed(
+  () =>
+    (routeMode.value === 'app' && appTab.value === 'home') || libraryUnderlayForScore.value,
+)
+
+function onScoreSlideAfterEnter() {
+  libraryUnderlayForScore.value = false
+}
 const isAuthenticated = computed(() => Boolean(authToken.value))
+watch(isAuthenticated, (ok, was) => {
+  if (ok) {
+    clearLoginIntroTimers()
+    loginCardMinH.value = null
+    loginLogoSlotMinH.value = null
+    finishLoginIntro()
+    return
+  }
+  if (was) {
+    loginIntroPhase.value = 'prepare'
+    nextTick(() => runLoginIntro())
+  }
+})
 const chatLoading = ref(false)
 const chatError = ref('')
 const chatInput = ref('')
@@ -892,6 +1126,20 @@ const assistantReferenceFile = ref(null)
 const assistantUploadError = ref('')
 const assistantUploadingScore = ref(false)
 const assistantShowScorePanel = ref(true)
+/** 乐谱收起/展开：先右栏覆盖延伸，再卸载乐谱；与 CSS 时长一致 */
+const ASSISTANT_SCORE_ANIM_MS = 520
+const assistantLayoutEl = ref(null)
+const assistantScorePaneEl = ref(null)
+const assistantChatPaneEl = ref(null)
+const assistantOverlayPhase = ref('idle')
+const assistantChatOverlayStyle = ref(null)
+let assistantOverlayClearTimer = null
+function clearAssistantOverlayTimer() {
+  if (assistantOverlayClearTimer != null) {
+    window.clearTimeout(assistantOverlayClearTimer)
+    assistantOverlayClearTimer = null
+  }
+}
 const assistantPdfInputEl = ref(null)
 const assistantReferenceInputEl = ref(null)
 const assistantPerformanceInputEl = ref(null)
@@ -1066,6 +1314,7 @@ function normalizeAppTab(tab) {
 
 function parseHashRoute() {
   if (!authToken.value) {
+    libraryUnderlayForScore.value = false
     routeMode.value = 'auth'
     routePathLabel.value = '/login'
     return
@@ -1078,12 +1327,14 @@ function parseHashRoute() {
   }
   const appTabMatch = hash.match(/^#\/app\/([a-zA-Z0-9_-]+)/)
   if (appTabMatch && appTabMatch[1]) {
+    libraryUnderlayForScore.value = false
     routeMode.value = 'app'
     appTab.value = normalizeAppTab(appTabMatch[1])
     routePathLabel.value = `/app/${appTab.value}`
     return
   }
   if (hash === '#/app' || hash === '#/' || hash === '') {
+    libraryUnderlayForScore.value = false
     routeMode.value = 'app'
     appTab.value = 'home'
     routePathLabel.value = '/app/home'
@@ -1091,6 +1342,11 @@ function parseHashRoute() {
   }
   const m = hash.match(/^#\/score\/([^/?#]+)/)
   if (m && m[1]) {
+    const fromHomeLibrary =
+      routeMode.value === 'app' && appTab.value === 'home'
+    if (fromHomeLibrary) {
+      libraryUnderlayForScore.value = true
+    }
     routeMode.value = 'score'
     const sid = decodeURIComponent(m[1])
     scoreId.value = sid
@@ -1099,6 +1355,7 @@ function parseHashRoute() {
     addRecentScore(sid)
     return
   }
+  libraryUnderlayForScore.value = false
   routePathLabel.value = '/'
 }
 
@@ -1172,6 +1429,122 @@ function refreshAssistantPanel() {
   todayPlanError.value = ''
   todayPlan.value = null
   threadMessages.value = []
+}
+
+function parseAssistantLayoutGapPx(layoutEl) {
+  const s = getComputedStyle(layoutEl)
+  const g = s.columnGap && s.columnGap !== 'normal' ? s.columnGap : s.gap
+  const m = String(g || '').match(/([\d.]+)px/)
+  return m ? parseFloat(m[1]) : 13.6
+}
+
+function beginCloseScorePanelAnim() {
+  if (!scoreId.value || !assistantShowScorePanel.value || assistantOverlayPhase.value !== 'idle') return
+  clearAssistantOverlayTimer()
+  assistantOverlayPhase.value = 'closing'
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const layout = assistantLayoutEl.value
+      const chat = assistantChatPaneEl.value
+      if (!layout || !chat) {
+        assistantShowScorePanel.value = false
+        assistantOverlayPhase.value = 'idle'
+        assistantChatOverlayStyle.value = null
+        return
+      }
+      const lr = layout.getBoundingClientRect()
+      const cr = chat.getBoundingClientRect()
+      const top = cr.top - lr.top
+      const left = cr.left - lr.left
+      const right = lr.right - cr.right
+      const h = cr.height
+      const ease = 'cubic-bezier(0.18, 0.88, 0.22, 1)'
+      assistantChatOverlayStyle.value = {
+        position: 'absolute',
+        top: `${top}px`,
+        left: `${left}px`,
+        right: `${right}px`,
+        height: `${h}px`,
+        zIndex: 3,
+        boxSizing: 'border-box',
+      }
+      requestAnimationFrame(() => {
+        assistantChatOverlayStyle.value = {
+          position: 'absolute',
+          top: `${top}px`,
+          left: '0px',
+          right: '0px',
+          height: `${h}px`,
+          zIndex: 3,
+          boxSizing: 'border-box',
+          transition: `left ${ASSISTANT_SCORE_ANIM_MS}ms ${ease}, right ${ASSISTANT_SCORE_ANIM_MS}ms ${ease}`,
+        }
+      })
+    })
+  })
+  assistantOverlayClearTimer = window.setTimeout(() => {
+    assistantOverlayClearTimer = null
+    assistantShowScorePanel.value = false
+    assistantOverlayPhase.value = 'idle'
+    assistantChatOverlayStyle.value = null
+  }, ASSISTANT_SCORE_ANIM_MS + 40)
+}
+
+function beginOpenScorePanelAnim() {
+  if (!scoreId.value || assistantShowScorePanel.value || assistantOverlayPhase.value !== 'idle') return
+  clearAssistantOverlayTimer()
+  assistantOverlayPhase.value = 'opening'
+  assistantShowScorePanel.value = true
+  const ease = 'cubic-bezier(0.18, 0.88, 0.22, 1)'
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const layout = assistantLayoutEl.value
+        const aside = assistantScorePaneEl.value
+        const chat = assistantChatPaneEl.value
+        if (!layout || !aside || !chat) {
+          assistantOverlayPhase.value = 'idle'
+          assistantChatOverlayStyle.value = null
+          return
+        }
+        const lr = layout.getBoundingClientRect()
+        const ar = aside.getBoundingClientRect()
+        const cr = chat.getBoundingClientRect()
+        const gap = parseAssistantLayoutGapPx(layout)
+        const endLeft = ar.right - lr.left + gap
+        const top = cr.top - lr.top
+        const h = cr.height
+        assistantChatOverlayStyle.value = {
+          position: 'absolute',
+          top: `${top}px`,
+          left: '0px',
+          right: '0px',
+          height: `${h}px`,
+          zIndex: 3,
+          boxSizing: 'border-box',
+          transition: 'none',
+        }
+        void chat.offsetHeight
+        requestAnimationFrame(() => {
+          assistantChatOverlayStyle.value = {
+            position: 'absolute',
+            top: `${top}px`,
+            left: `${endLeft}px`,
+            right: '0px',
+            height: `${h}px`,
+            zIndex: 3,
+            boxSizing: 'border-box',
+            transition: `left ${ASSISTANT_SCORE_ANIM_MS}ms ${ease}, right ${ASSISTANT_SCORE_ANIM_MS}ms ${ease}`,
+          }
+        })
+      })
+    })
+  })
+  assistantOverlayClearTimer = window.setTimeout(() => {
+    assistantOverlayClearTimer = null
+    assistantOverlayPhase.value = 'idle'
+    assistantChatOverlayStyle.value = null
+  }, ASSISTANT_SCORE_ANIM_MS + 40)
 }
 
 function pickAssistantPdf() {
@@ -1339,6 +1712,10 @@ async function doLogin() {
   } finally {
     authLoading.value = false
   }
+}
+
+function focusLoginPassword() {
+  loginPasswordInputEl.value?.focus()
 }
 
 async function doAuthEntry() {
@@ -1524,11 +1901,10 @@ async function loadAssistantSuggestion() {
   assistantModel.value = ''
   assistantPlan.value = null
   try {
-    const sid = summaryOnlyCurrentScore.value && scoreId.value ? scoreId.value : null
     const lastN = Math.min(100, Math.max(1, Number(summaryLastN.value) || 20))
     const res = await suggestAssistant({
       userId: currentUserId.value,
-      scoreId: sid,
+      scoreId: null,
       lastN,
     })
     assistantSuggestion.value = res.suggestion || ''
@@ -1561,11 +1937,10 @@ async function sendChat() {
   chatLoading.value = true
   chatError.value = ''
   try {
-    const sid = summaryOnlyCurrentScore.value && scoreId.value ? scoreId.value : null
     await sendAssistantMessage({
       userId: currentUserId.value,
       content,
-      scoreId: sid,
+      scoreId: null,
       lastN: Math.min(100, Math.max(1, Number(summaryLastN.value) || 20)),
     })
     chatInput.value = ''
@@ -1582,11 +1957,10 @@ async function loadTodayPlan() {
   todayPlanError.value = ''
   todayPlan.value = null
   try {
-    const sid = summaryOnlyCurrentScore.value && scoreId.value ? scoreId.value : null
     const lastN = Math.min(100, Math.max(1, Number(summaryLastN.value) || 20))
     todayPlan.value = await getTodayPlan({
       userId: currentUserId.value,
-      scoreId: sid,
+      scoreId: null,
       lastN,
     })
   } catch (e) {
@@ -1615,9 +1989,8 @@ async function loadPracticeSummary() {
   summaryLoading.value = true
   summaryError.value = ''
   try {
-    const sid = summaryOnlyCurrentScore.value && scoreId.value ? scoreId.value : null
     practiceSummary.value = await getPracticeSummary(currentUserId.value, {
-      scoreId: sid,
+      scoreId: null,
       lastN: Math.min(200, Math.max(1, Number(summaryLastN.value) || 30)),
     })
   } catch (e) {
@@ -1632,8 +2005,7 @@ async function loadPracticeSessionsList() {
   practiceSessionsLoading.value = true
   practiceSessionsError.value = ''
   try {
-    const sid = summaryOnlyCurrentScore.value && scoreId.value ? scoreId.value : null
-    const res = await getPracticeSessions(currentUserId.value, 30, sid)
+    const res = await getPracticeSessions(currentUserId.value, 30, null)
     practiceSessionsList.value = Array.isArray(res.sessions) ? res.sessions : []
     const existing = new Set(practiceSessionsList.value.map((x) => x?.id).filter(Boolean))
     selectedPracticeSessionIds.value = selectedPracticeSessionIds.value.filter((id) => existing.has(id))
@@ -1742,6 +2114,7 @@ onMounted(() => {
     return
   }
   parseHashRoute()
+  nextTick(() => runLoginIntro())
 })
 
 watch(currentUserId, async () => {
@@ -1763,6 +2136,10 @@ watch([appTab, routeMode], ([tab, mode]) => {
 })
 
 onBeforeUnmount(() => {
+  clearLoginIntroTimers()
+  clearAssistantOverlayTimer()
+  assistantChatOverlayStyle.value = null
+  assistantOverlayPhase.value = 'idle'
   window.removeEventListener('hashchange', parseHashRoute)
   if (backendHealthTimer) {
     clearInterval(backendHealthTimer)
@@ -1771,6 +2148,9 @@ onBeforeUnmount(() => {
 })
 
 watch(scoreId, async (id) => {
+  clearAssistantOverlayTimer()
+  assistantChatOverlayStyle.value = null
+  assistantOverlayPhase.value = 'idle'
   techniques.value = null
   techniquesError.value = ''
   scoreImageError.value = ''
@@ -1990,14 +2370,37 @@ body {
 }
 .app {
   min-height: 100vh;
-  padding-bottom: 2rem;
+}
+.app-authenticated {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.app-authenticated > .header {
+  flex-shrink: 0;
+}
+.app-body-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 .login-main {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
+  background: #f5f5f5;
+}
+.login-main--intro-active {
+  align-items: center;
 }
 .login-card {
   width: min(460px, 100%);
@@ -2005,11 +2408,50 @@ body {
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+}
+.login-logo-slot {
+  position: relative;
 }
 .login-logo {
   width: min(180px, 52%);
   display: block;
   margin: 0 auto 0.7rem auto;
+  transform-origin: center center;
+}
+.login-rest {
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+  transition: none;
+}
+.login-rest.login-rest--intro-show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition:
+    opacity 0.48s ease,
+    transform 0.55s cubic-bezier(0.22, 1, 0.32, 1);
+}
+/* TODO: 开屏动画调完后删除 */
+.login-intro-debug-btn {
+  position: fixed;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+}
+.login-intro-debug-btn:hover {
+  color: #0f172a;
+  border-color: #94a3b8;
 }
 .login-title {
   margin: 0 0 0.35rem 0;
@@ -2048,7 +2490,7 @@ body {
 .main {
   max-width: 1000px;
   margin: 0 auto;
-  padding: 1.5rem 1.5rem 5rem 1.5rem;
+  padding: 1.5rem;
 }
 .home-search-row {
   display: flex;
@@ -2113,25 +2555,94 @@ body {
   min-height: 520px;
   overflow: hidden;
 }
+/* 从曲库滑入覆盖：固定层 + 内层布局可伸缩 */
+.score-detail-page.score-detail-page--slide-overlay {
+  position: fixed;
+  top: 5.75rem;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem 1.5rem;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 不单独设背景，沿用 .card 的 #fff，与曲库白卡片一致 */
+  box-shadow: -8px 0 32px rgba(15, 23, 42, 0.12);
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+.score-detail-page--slide-overlay .score-detail-layout {
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+}
+.library-home-section--non-interactive {
+  pointer-events: none;
+  user-select: none;
+}
+.score-slide-from-right-enter-active,
+.score-slide-from-right-leave-active {
+  transition: transform 0.36s cubic-bezier(0.22, 1, 0.32, 1);
+}
+.score-slide-from-right-enter-from,
+.score-slide-from-right-leave-to {
+  transform: translateX(100%);
+}
+.score-slide-from-right-enter-to,
+.score-slide-from-right-leave-from {
+  transform: translateX(0);
+}
 .score-detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
   gap: 1rem;
-  align-items: stretch;
+  align-items: start;
   height: 100%;
   min-height: 0;
 }
 .score-detail-left {
   min-width: 0;
-  height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: visible;
 }
+/* 与智能助手侧乐谱区一致：明显外层边框与浅底 */
+.assistant-score-pane,
+.score-detail-score-pane {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.score-detail-score-pane {
+  flex: 0 1 auto;
+  width: 100%;
+  max-width: 100%;
+}
+/* 乐谱详情：按 A4 竖版比例≈一页 PDF 可视高度，多页在区域内滚动（仅此一处使用 .score-pages-scroll） */
 .score-pages-scroll {
-  flex: 1;
+  flex: none;
+  width: 100%;
+  aspect-ratio: 210 / 297;
+  max-height: min(82vh, calc(100dvh - 260px));
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0.25rem;
   overscroll-behavior: contain;
 }
@@ -2155,7 +2666,8 @@ body {
   border: 1px dashed #cbd5e1;
 }
 .score-detail-right {
-  height: 100%;
+  align-self: stretch;
+  min-height: 0;
   overflow: auto;
 }
 .score-id-input {
@@ -2346,6 +2858,16 @@ body {
 .summary-box p {
   margin: 0 0 0.5rem 0;
 }
+.summary-section .summary-profile-controls {
+  margin-top: 0.15rem;
+  margin-bottom: 0;
+}
+.summary-section > .summary-box {
+  margin-top: 0.65rem;
+}
+.summary-section .summary-box--records {
+  margin-top: 0.95rem;
+}
 .overview-table {
   width: 100%;
   border-collapse: collapse;
@@ -2431,32 +2953,92 @@ body {
 .assistant-plan p {
   margin: 0 0 0.45rem 0;
 }
+/* 1fr | auto | 1fr：左右等分余量，标题几何居中，不受左侧「显示乐谱」显隐挤压 */
 .assistant-topbar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
+  gap: 0.75rem;
   margin-bottom: 0.6rem;
+}
+.assistant-section .assistant-topbar h2.assistant-header-title {
+  margin: 0;
+  font-size: 1.35rem;
+  text-align: center;
+  justify-self: center;
+  min-width: 0;
+  grid-column: 2;
 }
 .assistant-upload-panel {
   margin-top: 0.6rem;
 }
 .assistant-layout {
-  margin-top: 0.75rem;
+  /* 乐谱区 / 右侧栏（含双列时整列）统一高度，略增高便于单页 PDF 一屏展示 */
+  --assistant-pane-vh: 78vh;
+  position: relative;
+  margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: minmax(420px, 2fr) minmax(320px, 1fr);
+  grid-template-columns: 1fr;
   gap: 0.85rem;
   align-items: start;
-  min-height: 72vh;
+  min-height: var(--assistant-pane-vh);
 }
-.assistant-score-pane {
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 0.55rem;
-  position: static;
-  height: 72vh;
+/* 有曲目且展开乐谱：双列（延伸动画由右栏 absolute 覆盖完成，不挤压左栏） */
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed) {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+/* 有左侧乐谱栏且展开时：首个卡片（练习设置）顶边与左侧乐谱面板顶边对齐 */
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed)
+  > .assistant-chat-slot
+  > .assistant-chat-pane
+  > .assistant-plan:first-of-type {
+  margin-top: 0;
+}
+/* 乐谱关闭后：与关闭前右栏一致，避免默认 .assistant-plan 上外边距导致整块下移、动画结束跳一下 */
+.assistant-layout--score-collapsed > .assistant-chat-slot > .assistant-chat-pane > .assistant-plan:first-of-type {
+  margin-top: 0;
+}
+.assistant-chat-slot {
+  min-width: 0;
+  min-height: 0;
+}
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed) > .assistant-chat-slot {
+  height: var(--assistant-pane-vh);
   display: flex;
   flex-direction: column;
+}
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed) > .assistant-chat-slot > .assistant-chat-pane {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.assistant-chat-pane--overlay-active {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  box-shadow: -10px 0 40px rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+}
+.assistant-topbar-left {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  grid-column: 1;
+}
+.assistant-topbar-right {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  grid-column: 3;
+}
+.assistant-score-pane {
+  position: static;
+  height: var(--assistant-pane-vh);
+  min-width: 0;
 }
 .assistant-score-pane-head {
   display: flex;
@@ -2473,8 +3055,13 @@ body {
   cursor: pointer;
   background: #fff;
 }
+.assistant-close-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .assistant-score-scroll {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -2493,12 +3080,32 @@ body {
 .assistant-chat-shell {
   display: flex;
   flex-direction: column;
-  min-height: 72vh;
-  height: 72vh;
+  min-height: var(--assistant-pane-vh);
+  height: var(--assistant-pane-vh);
   border: 1px solid #dbeafe;
   border-radius: 10px;
   background: #f8fafc;
   padding: 0.65rem;
+}
+/* 有左侧乐谱且展开时：右侧整列总高与左侧乐谱区一致，底边对齐 */
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed) > .assistant-chat-slot > .assistant-chat-pane > .assistant-chat-shell {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.assistant-layout--with-score:not(.assistant-layout--score-collapsed) .assistant-chat-shell .wechat-box {
+  min-height: 0;
+}
+/* 无乐谱列或乐谱已收起：对话气泡与练习设置同宽 */
+.assistant-layout:not(.assistant-layout--with-score) .assistant-chat-shell .chat-bubble,
+.assistant-layout--score-collapsed .assistant-chat-shell .chat-bubble {
+  max-width: 100%;
+}
+.assistant-layout:not(.assistant-layout--with-score) .assistant-chat-shell .system-card,
+.assistant-layout:not(.assistant-layout--with-score) .assistant-chat-shell .action-card,
+.assistant-layout--score-collapsed .assistant-chat-shell .system-card,
+.assistant-layout--score-collapsed .assistant-chat-shell .action-card {
+  max-width: 100%;
 }
 .wechat-box {
   flex: 1;
@@ -2645,10 +3252,8 @@ body {
   background: #fef2f2;
 }
 .bottom-tabs {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex-shrink: 0;
+  width: 100%;
   height: 58px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2688,25 +3293,25 @@ body {
     grid-template-columns: 1fr;
   }
   .score-pages-scroll {
-    height: auto;
-    max-height: 62vh;
+    max-height: min(68vh, calc(100dvh - 280px));
   }
   .score-detail-right {
     height: auto;
     max-height: none;
   }
+  .assistant-layout--with-score:not(.assistant-layout--score-collapsed) {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
   .assistant-layout {
-    grid-template-columns: minmax(260px, 1.4fr) minmax(0, 1fr);
+    --assistant-pane-vh: 64vh;
   }
   .assistant-score-scroll {
-    max-height: 62vh;
+    max-height: none;
   }
-  .assistant-chat-shell {
-    min-height: 58vh;
-    height: 58vh;
-  }
-  .assistant-score-pane {
-    height: 58vh;
+  .assistant-layout--with-score:not(.assistant-layout--score-collapsed) > .assistant-chat-slot > .assistant-chat-pane > .assistant-chat-shell {
+    flex: 1;
+    min-height: 0;
+    height: auto;
   }
 }
 code {
