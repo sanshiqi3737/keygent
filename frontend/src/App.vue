@@ -60,6 +60,59 @@
 
     <template v-else>
     <div class="app-authenticated">
+      <!-- 首次注册成功后：使用说明幻灯片（样式占位，文案后续替换） -->
+      <Transition name="onboarding-root" @after-leave="onOnboardingRootAfterLeave">
+        <div
+          v-if="showPostRegisterOnboarding"
+          class="onboarding-root"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="onboarding-slide-title"
+        >
+        <div class="onboarding-backdrop" aria-hidden="true" />
+        <div class="onboarding-card">
+          <p class="onboarding-welcome-strip">快速了解主要功能</p>
+          <Transition name="onboarding-slide" mode="out-in">
+            <div :key="onboardingSlideIndex" class="onboarding-slide-inner">
+              <div class="onboarding-visual" aria-hidden="true">
+                {{ onboardingSlides[onboardingSlideIndex].imageHint }}
+              </div>
+              <h2 id="onboarding-slide-title" class="onboarding-slide-title">
+                {{ onboardingSlides[onboardingSlideIndex].title }}
+              </h2>
+              <p class="onboarding-slide-body">
+                {{ onboardingSlides[onboardingSlideIndex].body }}
+              </p>
+            </div>
+          </Transition>
+          <div class="onboarding-dots" role="tablist" aria-label="幻灯片进度">
+            <span
+              v-for="(_, i) in onboardingSlides"
+              :key="i"
+              :class="['onboarding-dot', { 'onboarding-dot--active': i === onboardingSlideIndex }]"
+              role="presentation"
+            />
+          </div>
+          <div class="onboarding-footer">
+            <button type="button" class="onboarding-skip" @click="completePostRegisterOnboarding">跳过</button>
+            <div class="onboarding-footer-nav">
+              <button
+                type="button"
+                class="btn small onboarding-prev"
+                :disabled="onboardingSlideIndex === 0"
+                @click="onboardingPrev"
+              >
+                上一步
+              </button>
+              <button type="button" class="btn primary onboarding-next" @click="onboardingNextOrFinish">
+                {{ onboardingSlideIndex < onboardingSlides.length - 1 ? '下一步' : '进入首页' }}
+              </button>
+            </div>
+          </div>
+        </div>
+        </div>
+      </Transition>
+
     <header class="header">
       <h1>钢琴陪练 · keygent</h1>
       <p v-if="!backendOnline" class="error">后端连接异常：{{ backendStatusText }}</p>
@@ -813,6 +866,13 @@
       <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
       <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
     </nav>
+    <button
+      type="button"
+      class="login-intro-debug-btn onboarding-debug-btn"
+      @click="replayPostRegisterOnboardingDebug"
+    >
+      调试：播放引导幻灯片
+    </button>
     </div>
     </template>
   </div>
@@ -871,6 +931,89 @@ const authPasswordInput = ref('')
 const loginPasswordInputEl = ref(null)
 const authLoading = ref(false)
 const authError = ref('')
+
+/** 首次注册成功后幻灯片；完成后写入 localStorage，同设备不再播放 */
+const ONBOARDING_STORAGE_KEY = 'keygent_onboarding_slides_v1_done'
+const onboardingSlides = [
+  {
+    title: '欢迎使用 keygent',
+    body:
+      '底部三栏：首页·曲库（浏览与打开乐谱）、keygent（上传演奏、比对与智能助手）、个人主页（练习数据与记录）。',
+    imageHint: '三栏导航',
+  },
+  {
+    title: '主要使用流程',
+    body:
+      '① 曲库找谱并选定 → ② 进入 keygent、上传演奏 → ③ 比对后生成建议与练习任务 → ④ 多轮对话，持续细化练习。',
+    imageHint: '流程示意',
+  },
+  {
+    title: '首页·曲库',
+    body: '可按曲名搜索，并用难度、能力标签筛选；点封面卡片即可打开乐谱。',
+    imageHint: '曲库卡片',
+  },
+  {
+    title: '乐谱页',
+    body:
+      '多页大图看谱，可缩放、拖拽查看细节；右侧可见曲目画像。点「开始练习」会带上本曲进入 keygent。',
+    imageHint: '乐谱大图',
+  },
+  {
+    title: 'keygent 与个人主页',
+    body:
+      '在 keygent 上传演奏并比对，查看准确率与错音；可与助手多轮对话，使用「生成建议」「练习任务」，也可上传 PDF 与参考演奏补充曲目。在个人主页查看练习摘要、薄弱小节与最近记录，并可管理已保存的练习音频。',
+    imageHint: '助手与数据概览',
+  },
+]
+const showPostRegisterOnboarding = ref(false)
+const onboardingSlideIndex = ref(0)
+
+function completePostRegisterOnboarding() {
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+  showPostRegisterOnboarding.value = false
+}
+
+/** 蒙层淡出结束后再复位页码、恢复滚动，避免关闭瞬间内容跳回第一页 */
+function onOnboardingRootAfterLeave() {
+  onboardingSlideIndex.value = 0
+  if (typeof document !== 'undefined') document.body.style.overflow = ''
+}
+
+function openPostRegisterOnboardingIfNeeded(registeredNewUser) {
+  if (!registeredNewUser) return
+  try {
+    if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1') return
+  } catch {
+    return
+  }
+  onboardingSlideIndex.value = 0
+  showPostRegisterOnboarding.value = true
+}
+
+function onboardingPrev() {
+  if (onboardingSlideIndex.value > 0) {
+    onboardingSlideIndex.value -= 1
+  }
+}
+
+function onboardingNextOrFinish() {
+  if (onboardingSlideIndex.value < onboardingSlides.length - 1) {
+    onboardingSlideIndex.value += 1
+  } else {
+    completePostRegisterOnboarding()
+  }
+}
+
+/** 调试用：直接打开引导幻灯片（不校验是否首次注册、不读 localStorage） */
+function replayPostRegisterOnboardingDebug() {
+  if (!authToken.value) return
+  onboardingSlideIndex.value = 0
+  showPostRegisterOnboarding.value = true
+}
 
 /** 未登录开屏：prepare → splash（大图居中）→ fly（回卡片位）→ done；已登录为 done */
 const LOGIN_INTRO_SPLASH_MS = 320
@@ -1091,6 +1234,11 @@ function onScoreSlideAfterEnter() {
 }
 const isAuthenticated = computed(() => Boolean(authToken.value))
 watch(isAuthenticated, (ok, was) => {
+  if (!ok) {
+    if (typeof document !== 'undefined') document.body.style.overflow = ''
+    showPostRegisterOnboarding.value = false
+    onboardingSlideIndex.value = 0
+  }
   if (ok) {
     clearLoginIntroTimers()
     loginCardMinH.value = null
@@ -1102,6 +1250,11 @@ watch(isAuthenticated, (ok, was) => {
     loginIntroPhase.value = 'prepare'
     nextTick(() => runLoginIntro())
   }
+})
+
+watch(showPostRegisterOnboarding, (open) => {
+  if (typeof document === 'undefined') return
+  if (open) document.body.style.overflow = 'hidden'
 })
 const chatLoading = ref(false)
 const chatError = ref('')
@@ -1726,12 +1879,14 @@ async function doAuthEntry() {
     const healthy = await withTimeout(checkBackendHealth(), 8000, '后端健康检查超时')
     if (!healthy) throw new Error('无法连接后端（/health 不通）')
     let res = null
+    let cameThroughRegister = false
     try {
       res = await withTimeout(authLogin(account, password), 12000, '登录请求超时')
     } catch (e) {
       // 优先自动注册再登录：即使登录返回“账号或密码错误”，也尝试注册一次。
       try {
         await withTimeout(authRegister(account, password), 12000, '注册请求超时')
+        cameThroughRegister = true
         res = await withTimeout(authLogin(account, password), 12000, '登录请求超时')
       } catch (registerErr) {
         if (canAutoRegisterFromLoginError(e?.message)) {
@@ -1761,6 +1916,7 @@ async function doAuthEntry() {
       loadPracticeSessionsList(),
       loadAssistantThread(),
     ])
+    openPostRegisterOnboardingIfNeeded(cameThroughRegister)
   } catch (e) {
     authError.value = friendlyErrorMessage(e, '登录/注册失败')
   } finally {
@@ -2453,6 +2609,10 @@ body {
   color: #0f172a;
   border-color: #94a3b8;
 }
+/* 已登录底栏 58px，调试按钮抬高避免遮挡 */
+.onboarding-debug-btn {
+  bottom: calc(58px + max(0.75rem, env(safe-area-inset-bottom, 0px)));
+}
 .login-title {
   margin: 0 0 0.35rem 0;
   text-align: center;
@@ -2473,6 +2633,167 @@ body {
 .login-btn {
   width: 100%;
 }
+
+/* 首次注册后：使用说明幻灯片（与登录卡片风格对齐） */
+.onboarding-root {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px))
+    max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+.onboarding-root-enter-active,
+.onboarding-root-leave-active {
+  transition: opacity 0.38s ease;
+}
+.onboarding-root-leave-active {
+  pointer-events: none;
+}
+.onboarding-root-enter-from,
+.onboarding-root-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-root-enter-active,
+  .onboarding-root-leave-active {
+    transition-duration: 0.12s;
+  }
+}
+.onboarding-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+}
+.onboarding-card {
+  position: relative;
+  width: min(460px, 100%);
+  max-height: min(90vh, 640px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem 1.35rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
+}
+.onboarding-welcome-strip {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  text-align: center;
+}
+.onboarding-slide-inner {
+  min-height: 300px;
+}
+.onboarding-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  margin-bottom: 1.75rem;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #f1f5f9 0%, #e2e8f0 100%);
+  color: #94a3b8;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 1.5rem 1.25rem;
+  box-sizing: border-box;
+}
+.onboarding-slide-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  line-height: 1.35;
+  color: #0f172a;
+  text-align: center;
+}
+.onboarding-slide-body {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #475569;
+  text-align: center;
+}
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 1.15rem 0 0.85rem;
+}
+.onboarding-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.onboarding-dot--active {
+  background: #1a1a2e;
+  transform: scale(1.15);
+}
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.onboarding-skip {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.35rem 0.25rem;
+}
+.onboarding-skip:hover {
+  color: #0f172a;
+}
+.onboarding-footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.onboarding-prev:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.onboarding-next {
+  min-width: 7.5rem;
+}
+.onboarding-slide-enter-active,
+.onboarding-slide-leave-active {
+  transition:
+    opacity 0.28s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.32, 1);
+}
+.onboarding-slide-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.onboarding-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-slide-enter-active,
+  .onboarding-slide-leave-active {
+    transition: opacity 0.12s ease;
+  }
+  .onboarding-slide-enter-from,
+  .onboarding-slide-leave-to {
+    transform: none;
+  }
+  .onboarding-dot {
+    transition: none;
+  }
+}
+
 .header {
   background: #1a1a2e;
   color: #eee;
