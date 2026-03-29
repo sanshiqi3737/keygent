@@ -1,7 +1,7 @@
 <template>
   <div class="app">
     <main
-      v-if="!isAuthenticated"
+      v-if="!isAuthenticated && !devOnboardingPreview"
       class="login-main"
       :class="{ 'login-main--intro-active': loginIntroPhase !== 'done' }"
     >
@@ -50,13 +50,121 @@
       </section>
     </main>
     <button
-      v-if="!isAuthenticated"
+      v-if="!isAuthenticated && !devOnboardingPreview"
       type="button"
       class="login-intro-debug-btn"
       @click="replayLoginIntroDebug"
     >
       调试：重放开屏动画
     </button>
+
+    <main v-else-if="!devOnboardingPreview && isAuthenticated && authBootPending" class="login-main">
+      <section class="login-card onboarding-card onboarding-card--narrow">
+        <p class="muted" style="text-align: center; margin: 0">正在验证登录…</p>
+      </section>
+    </main>
+
+    <main v-else-if="devOnboardingPreview || needsOnboarding" class="login-main onboarding-wrap">
+      <section class="login-card onboarding-card">
+        <div class="onboarding-card-actions">
+          <button
+            v-if="onboardingStep === 0"
+            type="button"
+            class="onboarding-skip"
+            @click="skipOnboarding"
+          >
+            跳过
+          </button>
+          <button
+            v-if="onboardingStep >= 1 && onboardingSoundEnabled && onboardingAudioUsable"
+            type="button"
+            class="onboarding-sound-icon-btn"
+            :class="{ 'onboarding-sound-icon-btn--muted': onboardingSoundMuted }"
+            :aria-pressed="!onboardingSoundMuted"
+            :title="onboardingSoundMuted ? '打开按键音效' : '静音'"
+            :aria-label="onboardingSoundMuted ? '打开按键音效' : '静音按键音效'"
+            @click="toggleOnboardingSoundMute"
+          >
+            <svg
+              v-if="onboardingSoundMuted"
+              class="onboarding-sound-icon-svg"
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
+              />
+            </svg>
+            <svg
+              v-else
+              class="onboarding-sound-icon-svg"
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+              />
+            </svg>
+          </button>
+        </div>
+        <p v-if="devOnboardingPreview" class="muted onboarding-dev-banner">
+          开发预览 · 无需登录。地址含 <code>#/onboarding-preview</code>；点「进入应用」或「跳过」将关闭预览。
+        </p>
+        <p class="muted onboarding-progress">步骤 {{ onboardingStep + 1 }} / {{ ONBOARDING_STEP_COUNT }}</p>
+        <h1 class="login-title">{{ currentOnboardingQuestion.title }}</h1>
+
+        <div v-if="onboardingAudioUsable && onboardingStep === 0" class="onboarding-sound-row">
+          <label class="onboarding-sound-label">
+            <input
+              type="checkbox"
+              :checked="onboardingSoundEnabled"
+              @change="onOnboardingSoundToggle"
+            />
+            <span>按键音效（短钢琴音，默认关闭；勾选后第 2–4 步默认开启，可在右上角静音）</span>
+          </label>
+        </div>
+        <p v-else-if="!onboardingAudioUsable && onboardingStep === 0" class="muted onboarding-sound-unavailable">
+          当前环境不支持 Web Audio，已跳过按键音效。
+        </p>
+
+        <div class="onboarding-options">
+          <button
+            v-for="opt in currentOnboardingQuestion.options"
+            :key="opt.id"
+            type="button"
+            class="onboarding-chip"
+            :class="{
+              active: onboardingSelections[onboardingStep] === opt.id,
+              'onboarding-chip--tap': onboardingTapFlashId === opt.id,
+            }"
+            @click="setOnboardingSelection(onboardingStep, opt.id)"
+          >
+            <span class="onboarding-chip-title">{{ opt.label }}</span>
+          </button>
+        </div>
+
+        <p v-if="onboardingFormError" class="error">{{ onboardingFormError }}</p>
+        <div class="onboarding-nav">
+          <button v-if="onboardingStep > 0" type="button" class="btn" @click="onboardingPrevStep">上一步</button>
+          <div class="onboarding-nav-spacer" />
+          <button
+            v-if="onboardingStep < ONBOARDING_STEP_COUNT - 1"
+            type="button"
+            class="btn primary"
+            @click="onboardingNextStep"
+          >
+            下一步
+          </button>
+          <button v-else type="button" class="btn primary" @click="submitOnboarding">进入应用</button>
+        </div>
+      </section>
+    </main>
 
     <template v-else>
     <div class="app-authenticated">
@@ -808,10 +916,55 @@
       </section>
     </main>
     </div>
-    <nav v-if="routeMode === 'app'" class="bottom-tabs">
-      <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页·曲库</button>
-      <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
-      <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
+    <nav v-if="routeMode === 'app'" class="bottom-tabs" aria-label="主导航">
+      <button
+        type="button"
+        :class="[
+          'tab-btn',
+          appTab === 'home' ? 'active' : '',
+          tabBurstKey === 'home' ? 'tab-btn--burst' : '',
+          tabHaloKey === 'home' ? 'tab-btn--halo-burst' : '',
+          tabReboundKey === 'home' ? 'tab-btn--rebound' : '',
+        ]"
+        @pointerdown="onPianoTabPointerDown('home', $event)"
+        @keydown="onPianoTabKeydown('home', $event)"
+        @click="goPianoTab('home')"
+      >
+        <span class="tab-btn-press-halo" aria-hidden="true"></span>
+        <span class="tab-btn-label">首页·曲库</span>
+      </button>
+      <button
+        type="button"
+        :class="[
+          'tab-btn',
+          appTab === 'assistant' ? 'active' : '',
+          tabBurstKey === 'assistant' ? 'tab-btn--burst' : '',
+          tabHaloKey === 'assistant' ? 'tab-btn--halo-burst' : '',
+          tabReboundKey === 'assistant' ? 'tab-btn--rebound' : '',
+        ]"
+        @pointerdown="onPianoTabPointerDown('assistant', $event)"
+        @keydown="onPianoTabKeydown('assistant', $event)"
+        @click="goPianoTab('assistant')"
+      >
+        <span class="tab-btn-press-halo" aria-hidden="true"></span>
+        <span class="tab-btn-label">keygent</span>
+      </button>
+      <button
+        type="button"
+        :class="[
+          'tab-btn',
+          appTab === 'profile' ? 'active' : '',
+          tabBurstKey === 'profile' ? 'tab-btn--burst' : '',
+          tabHaloKey === 'profile' ? 'tab-btn--halo-burst' : '',
+          tabReboundKey === 'profile' ? 'tab-btn--rebound' : '',
+        ]"
+        @pointerdown="onPianoTabPointerDown('profile', $event)"
+        @keydown="onPianoTabKeydown('profile', $event)"
+        @click="goPianoTab('profile')"
+      >
+        <span class="tab-btn-press-halo" aria-hidden="true"></span>
+        <span class="tab-btn-label">个人主页</span>
+      </button>
     </nav>
     </div>
     </template>
@@ -865,6 +1018,207 @@ const musicxmlFile = ref(null)
 const audioFile = ref(null)
 const currentUserId = ref('default')
 const currentAccount = ref('')
+
+/** 登录后问卷（仅 localStorage，按用户 id 分键；v2 为题组结构） */
+const ONBOARDING_QUESTIONS = [
+  {
+    title: '你学习钢琴多久了？',
+    options: [
+      { id: 'dur_never', label: '从未学过' },
+      { id: 'dur_lt3m', label: '少于3个月' },
+      { id: 'dur_3m_1y', label: '3个月–1年' },
+      { id: 'dur_1y_3y', label: '1–3年' },
+      { id: 'dur_gt3y', label: '3年以上' },
+    ],
+  },
+  {
+    title: '你能看懂五线谱吗？',
+    options: [
+      { id: 'sight_none', label: '完全看不懂' },
+      { id: 'sight_little', label: '能看懂一点（需要慢慢认）' },
+      { id: 'sight_simple', label: '基本能看懂简单乐谱' },
+      { id: 'sight_ok', label: '可以熟练识谱' },
+    ],
+  },
+  {
+    title: '你目前可以完成哪种程度的曲子？',
+    options: [
+      { id: 'play_one_hand', label: '单手简单旋律' },
+      { id: 'play_two_simple', label: '双手简单配合' },
+      { id: 'play_full_simple', label: '可以弹完整简单曲子' },
+      { id: 'play_medium', label: '可以弹中等难度曲子' },
+    ],
+  },
+  {
+    title: '你平时练琴频率是？',
+    options: [
+      { id: 'freq_rare', label: '几乎不练' },
+      { id: 'freq_1_2', label: '每周1–2次' },
+      { id: 'freq_3_5', label: '每周3–5次' },
+      { id: 'freq_daily', label: '几乎每天练习' },
+    ],
+  },
+]
+const ONBOARDING_STEP_COUNT = ONBOARDING_QUESTIONS.length
+
+/** 仅开发：地址栏 hash 含 onboarding-preview 时可单独看问卷 UI */
+const isViteDev = import.meta.env.DEV
+const devOnboardingPreview = ref(false)
+
+function syncDevOnboardingPreviewFromHash() {
+  if (!isViteDev) {
+    devOnboardingPreview.value = false
+    return
+  }
+  const h = String(window.location.hash || '')
+  devOnboardingPreview.value = h.includes('onboarding-preview')
+}
+
+function exitDevOnboardingPreview() {
+  if (!devOnboardingPreview.value) return
+  devOnboardingPreview.value = false
+  try {
+    const u = new URL(window.location.href)
+    u.hash = ''
+    window.history.replaceState(null, '', `${u.pathname}${u.search}`)
+  } catch {
+    // ignore
+  }
+}
+
+function handleHashChange() {
+  syncDevOnboardingPreviewFromHash()
+  parseHashRoute()
+}
+
+const onboardingFinished = ref(false)
+const onboardingStep = ref(0)
+const onboardingSelections = ref(ONBOARDING_QUESTIONS.map(() => ''))
+const onboardingFormError = ref('')
+/** 选项点击时短暂触发，用于钢琴键式敲击动画 */
+const onboardingTapFlashId = ref('')
+let onboardingTapClearTimer = null
+
+/** 问卷内可选：极短琴键音（Web Audio）；默认关，需第 1 页勾选以 resume；第 2–4 页用右上角图标静音 */
+const onboardingSoundEnabled = ref(false)
+/** 仅当 enabled 时有效；为 true 时不播放（第 2–4 步可点图标切换） */
+const onboardingSoundMuted = ref(false)
+let onboardingAudioContext = null
+
+const onboardingAudioUsable = typeof window !== 'undefined' && !!(window.AudioContext || window.webkitAudioContext)
+
+function onboardingSoundAllowedBySystem() {
+  try {
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return true
+  }
+}
+
+async function armOnboardingAudioFromUserGesture() {
+  if (!onboardingAudioUsable) return
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return
+  if (!onboardingAudioContext) {
+    onboardingAudioContext = new AC()
+  }
+  if (onboardingAudioContext.state === 'suspended') {
+    await onboardingAudioContext.resume()
+  }
+}
+
+function playOnboardingKeySoundInternal(optionIndex, stepIdx) {
+  if (
+    !onboardingSoundEnabled.value
+    || onboardingSoundMuted.value
+    || !onboardingSoundAllowedBySystem()
+  ) {
+    return
+  }
+  const ctx = onboardingAudioContext
+  if (!ctx || ctx.state !== 'running') return
+
+  const t = ctx.currentTime
+  const midi = 59 + optionIndex * 2 + stepIdx * 3
+  const clampedMidi = Math.min(84, Math.max(48, midi))
+  const f0 = 440 * 2 ** ((clampedMidi - 69) / 12)
+
+  const osc = ctx.createOscillator()
+  const g = ctx.createGain()
+  osc.type = 'triangle'
+  osc.frequency.setValueAtTime(f0, t)
+
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(0.1, t + 0.008)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14)
+
+  osc.connect(g)
+  g.connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + 0.155)
+}
+
+function playOnboardingKeySoundForSelection(stepIdx, optionId) {
+  if (!onboardingSoundEnabled.value || onboardingSoundMuted.value || !onboardingAudioUsable) return
+  const opts = ONBOARDING_QUESTIONS[stepIdx]?.options || []
+  const idx = Math.max(0, opts.findIndex((o) => o.id === optionId))
+
+  const go = () => playOnboardingKeySoundInternal(idx, stepIdx)
+  if (!onboardingAudioContext || onboardingAudioContext.state === 'suspended') {
+    void armOnboardingAudioFromUserGesture().then(() => {
+      if (onboardingSoundEnabled.value) go()
+    })
+    return
+  }
+  go()
+}
+
+async function onOnboardingSoundToggle(ev) {
+  const el = ev.target
+  if (!(el instanceof HTMLInputElement)) return
+  const on = el.checked
+  onboardingSoundEnabled.value = on
+  if (on) {
+    onboardingSoundMuted.value = false
+    await armOnboardingAudioFromUserGesture()
+  } else {
+    onboardingSoundMuted.value = false
+  }
+}
+
+function toggleOnboardingSoundMute() {
+  onboardingSoundMuted.value = !onboardingSoundMuted.value
+}
+
+function getOnboardingStorageKey(userId) {
+  const id = String(userId || '').trim()
+  if (!id || id === 'default') return ''
+  return `piano_onboarding_v2_${id}`
+}
+
+function syncOnboardingFromStorage() {
+  const uid = String(currentUserId.value || '').trim()
+  if (!uid || uid === 'default') {
+    onboardingFinished.value = false
+    return
+  }
+  try {
+    const key = getOnboardingStorageKey(uid)
+    if (!key) {
+      onboardingFinished.value = false
+      return
+    }
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      onboardingFinished.value = false
+      return
+    }
+    const data = JSON.parse(raw)
+    onboardingFinished.value = Boolean(data && data.completed === true)
+  } catch {
+    onboardingFinished.value = false
+  }
+}
 const authToken = ref(peekAuthToken())
 const authAccountInput = ref('')
 const authPasswordInput = ref('')
@@ -1090,6 +1444,159 @@ function onScoreSlideAfterEnter() {
   libraryUnderlayForScore.value = false
 }
 const isAuthenticated = computed(() => Boolean(authToken.value))
+
+const authBootPending = computed(() => {
+  if (!isAuthenticated.value) return false
+  const uid = String(currentUserId.value || '').trim()
+  return !uid || uid === 'default'
+})
+
+const needsOnboarding = computed(
+  () => isAuthenticated.value && !authBootPending.value && !onboardingFinished.value,
+)
+
+const currentOnboardingQuestion = computed(
+  () => ONBOARDING_QUESTIONS[onboardingStep.value] || ONBOARDING_QUESTIONS[0],
+)
+
+function setOnboardingSelection(stepIdx, optionId) {
+  const next = [...onboardingSelections.value]
+  next[stepIdx] = optionId
+  onboardingSelections.value = next
+  onboardingFormError.value = ''
+  onboardingTapFlashId.value = optionId
+  if (onboardingTapClearTimer != null) {
+    window.clearTimeout(onboardingTapClearTimer)
+    onboardingTapClearTimer = null
+  }
+  onboardingTapClearTimer = window.setTimeout(() => {
+    onboardingTapFlashId.value = ''
+    onboardingTapClearTimer = null
+  }, 420)
+  playOnboardingKeySoundForSelection(stepIdx, optionId)
+}
+
+function onboardingPrevStep() {
+  if (onboardingStep.value <= 0) return
+  onboardingStep.value -= 1
+  onboardingFormError.value = ''
+}
+
+function onboardingNextStep() {
+  if (!onboardingSelections.value[onboardingStep.value]) {
+    onboardingFormError.value = '请选择一项。'
+    return
+  }
+  onboardingFormError.value = ''
+  if (onboardingStep.value < ONBOARDING_STEP_COUNT - 1) {
+    onboardingStep.value += 1
+  }
+}
+
+async function submitOnboarding() {
+  onboardingFormError.value = ''
+  const last = ONBOARDING_STEP_COUNT - 1
+  if (!onboardingSelections.value[last]) {
+    onboardingFormError.value = '请选择一项。'
+    return
+  }
+  if (devOnboardingPreview.value) {
+    exitDevOnboardingPreview()
+    return
+  }
+  const uid = String(currentUserId.value || '').trim()
+  const key = getOnboardingStorageKey(uid)
+  if (!key) {
+    onboardingFormError.value = '用户信息未就绪，请稍后重试。'
+    return
+  }
+  const [learningDuration, sightReading, playLevel, practiceFrequency] = onboardingSelections.value
+  const payload = {
+    completed: true,
+    version: 2,
+    learningDuration,
+    sightReading,
+    playLevel,
+    practiceFrequency,
+    completedAt: new Date().toISOString(),
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    onboardingFormError.value = '保存失败，请确认浏览器未禁用本地存储。'
+    return
+  }
+  onboardingFinished.value = true
+  goAppTab('home')
+  try {
+    await loadInitialAppData()
+  } catch {
+    // 忽略；用户可刷新
+  }
+}
+
+/** 跳过问卷：标记已完成（skipped）并进入主界面，不写入选题答案 */
+async function skipOnboarding() {
+  onboardingFormError.value = ''
+  if (devOnboardingPreview.value) {
+    exitDevOnboardingPreview()
+    return
+  }
+  const uid = String(currentUserId.value || '').trim()
+  const key = getOnboardingStorageKey(uid)
+  if (!key) {
+    onboardingFormError.value = '用户信息未就绪，请稍后重试。'
+    return
+  }
+  const payload = {
+    completed: true,
+    skipped: true,
+    version: 2,
+    completedAt: new Date().toISOString(),
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    onboardingFormError.value = '保存失败，请确认浏览器未禁用本地存储。'
+    return
+  }
+  onboardingFinished.value = true
+  goAppTab('home')
+  try {
+    await loadInitialAppData()
+  } catch {
+    // 忽略
+  }
+}
+
+async function loadInitialAppData() {
+  await Promise.all([
+    loadScoreLibrary(),
+    loadPracticeSummary(),
+    loadPracticeSessionsList(),
+    loadAssistantThread(),
+  ])
+}
+
+watch(needsOnboarding, (need, was) => {
+  if (need && !was) {
+    onboardingStep.value = 0
+    onboardingSelections.value = ONBOARDING_QUESTIONS.map(() => '')
+    onboardingFormError.value = ''
+    onboardingSoundEnabled.value = false
+    onboardingSoundMuted.value = false
+  }
+})
+
+watch(devOnboardingPreview, (v) => {
+  if (!v) return
+  onboardingStep.value = 0
+  onboardingSelections.value = ONBOARDING_QUESTIONS.map(() => '')
+  onboardingFormError.value = ''
+  onboardingSoundEnabled.value = false
+  onboardingSoundMuted.value = false
+})
+
 watch(isAuthenticated, (ok, was) => {
   if (ok) {
     clearLoginIntroTimers()
@@ -1382,6 +1889,78 @@ function goAppTab(tab) {
   }
   const safe = normalizeAppTab(tab)
   window.location.hash = `#/app/${safe}`
+}
+
+const tabBurstKey = ref('')
+let tabBurstTimer = null
+const tabHaloKey = ref('')
+let tabHaloTimer = null
+const tabReboundKey = ref('')
+let tabReboundTimer = null
+
+const TAB_RIPPLE_MS = 640
+const TAB_HALO_MS = 680
+
+/** 淡紫横向散开并逐渐淡出（松手后继续播完，无回收感） */
+function triggerPianoTabHalo(tab) {
+  if (tabHaloTimer != null) {
+    window.clearTimeout(tabHaloTimer)
+    tabHaloTimer = null
+  }
+  tabHaloKey.value = ''
+  nextTick(() => {
+    tabHaloKey.value = tab
+    tabHaloTimer = window.setTimeout(() => {
+      tabHaloKey.value = ''
+      tabHaloTimer = null
+    }, TAB_HALO_MS)
+  })
+}
+
+/** 淡紫水波纹：自按键中心向外散开（与 tab-btn--burst / ::after 动画对应） */
+function triggerPianoTabRipple(tab) {
+  if (tabBurstTimer != null) {
+    window.clearTimeout(tabBurstTimer)
+    tabBurstTimer = null
+  }
+  tabBurstKey.value = ''
+  nextTick(() => {
+    tabBurstKey.value = tab
+    tabBurstTimer = window.setTimeout(() => {
+      tabBurstKey.value = ''
+      tabBurstTimer = null
+    }, TAB_RIPPLE_MS)
+  })
+}
+
+function onPianoTabPointerDown(tab, e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  triggerPianoTabHalo(tab)
+  triggerPianoTabRipple(tab)
+}
+
+function onPianoTabKeydown(tab, e) {
+  if (e.repeat) return
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  triggerPianoTabHalo(tab)
+  triggerPianoTabRipple(tab)
+}
+
+/** 底部钢琴 Tab：切换路由；按下时已触发横向淡紫光晕 + 水波纹；松手后轻微上弹 */
+function goPianoTab(tab) {
+  goAppTab(tab)
+  if (tabReboundTimer != null) {
+    window.clearTimeout(tabReboundTimer)
+    tabReboundTimer = null
+  }
+  tabReboundKey.value = ''
+  nextTick(() => {
+    tabReboundKey.value = tab
+    tabReboundTimer = window.setTimeout(() => {
+      tabReboundKey.value = ''
+      tabReboundTimer = null
+    }, 400)
+  })
 }
 
 async function searchHomeScores() {
@@ -1679,6 +2258,7 @@ function applyLoggedInUser(user) {
   assistantError.value = ''
   if (uid) currentUserId.value = uid
   if (acc) currentAccount.value = acc
+  syncOnboardingFromStorage()
 }
 
 async function doRegister() {
@@ -1755,12 +2335,9 @@ async function doAuthEntry() {
     setAuthToken(authToken.value)
     localStorage.setItem('auth_token', authToken.value)
     goAppTab('home')
-    await Promise.all([
-      loadScoreLibrary(),
-      loadPracticeSummary(),
-      loadPracticeSessionsList(),
-      loadAssistantThread(),
-    ])
+    if (onboardingFinished.value) {
+      await loadInitialAppData()
+    }
   } catch (e) {
     authError.value = friendlyErrorMessage(e, '登录/注册失败')
   } finally {
@@ -2085,8 +2662,10 @@ onMounted(() => {
   } catch {
     // ignore invalid storage
   }
+  syncDevOnboardingPreviewFromHash()
+  syncOnboardingFromStorage()
   parseHashRoute()
-  window.addEventListener('hashchange', parseHashRoute)
+  window.addEventListener('hashchange', handleHashChange)
   refreshBackendHealth()
   runStartupChecklist()
   backendHealthTimer = window.setInterval(() => {
@@ -2094,15 +2673,12 @@ onMounted(() => {
   }, 15000)
   if (authToken.value) {
     authMe(authToken.value)
-      .then((res) => {
+      .then(async (res) => {
         applyLoggedInUser(res.user)
         parseHashRoute()
-        return Promise.all([
-          loadScoreLibrary(),
-          loadPracticeSummary(),
-          loadPracticeSessionsList(),
-          loadAssistantThread(),
-        ])
+        if (onboardingFinished.value) {
+          await loadInitialAppData()
+        }
       })
       .catch(() => {
         authToken.value = ''
@@ -2114,7 +2690,9 @@ onMounted(() => {
     return
   }
   parseHashRoute()
-  nextTick(() => runLoginIntro())
+  if (!devOnboardingPreview.value) {
+    nextTick(() => runLoginIntro())
+  }
 })
 
 watch(currentUserId, async () => {
@@ -2140,7 +2718,23 @@ onBeforeUnmount(() => {
   clearAssistantOverlayTimer()
   assistantChatOverlayStyle.value = null
   assistantOverlayPhase.value = 'idle'
-  window.removeEventListener('hashchange', parseHashRoute)
+  if (onboardingTapClearTimer != null) {
+    window.clearTimeout(onboardingTapClearTimer)
+    onboardingTapClearTimer = null
+  }
+  if (onboardingAudioContext) {
+    onboardingAudioContext.close().catch(() => {})
+    onboardingAudioContext = null
+  }
+  if (tabBurstTimer != null) {
+    window.clearTimeout(tabBurstTimer)
+    tabBurstTimer = null
+  }
+  if (tabHaloTimer != null) {
+    window.clearTimeout(tabHaloTimer)
+    tabHaloTimer = null
+  }
+  window.removeEventListener('hashchange', handleHashChange)
   if (backendHealthTimer) {
     clearInterval(backendHealthTimer)
     backendHealthTimer = null
@@ -2473,6 +3067,285 @@ body {
 .login-btn {
   width: 100%;
 }
+
+/* —— 登录后问卷：淡紫竖排 + 钢琴键式反馈 —— */
+.onboarding-wrap {
+  background: linear-gradient(165deg, #faf5ff 0%, #f1f5f9 45%, #ede9fe 100%);
+}
+.onboarding-card {
+  position: relative;
+  width: min(480px, 100%);
+  max-width: 100%;
+}
+.onboarding-card-actions {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+.onboarding-skip {
+  position: static;
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.onboarding-skip:hover {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #fff;
+}
+.onboarding-skip:active {
+  transform: scale(0.98);
+}
+.onboarding-sound-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e2e8f0;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.12s ease;
+}
+.onboarding-sound-icon-btn:hover {
+  color: #5b21b6;
+  border-color: #ddd6fe;
+  background: #faf5ff;
+}
+.onboarding-sound-icon-btn--muted {
+  color: #94a3b8;
+}
+.onboarding-sound-icon-btn--muted:hover {
+  color: #7c3aed;
+}
+.onboarding-sound-icon-btn:active {
+  transform: scale(0.94);
+}
+.onboarding-sound-icon-svg {
+  display: block;
+  flex-shrink: 0;
+}
+.onboarding-card--narrow {
+  width: min(460px, 100%);
+}
+.onboarding-progress {
+  text-align: center;
+  margin: 0 0 0.5rem 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+}
+.onboarding-sound-row {
+  margin: 0 0 1.1rem 0;
+  padding: 0.55rem 0.65rem;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #e9d5ff;
+  border-radius: 10px;
+}
+.onboarding-sound-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: #5b21b6;
+  line-height: 1.45;
+  margin: 0;
+}
+.onboarding-sound-label input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  accent-color: #7c3aed;
+}
+.onboarding-sound-unavailable {
+  font-size: 0.86rem;
+  margin: 0 0 1rem 0;
+  text-align: center;
+}
+.onboarding-dev-banner {
+  font-size: 0.82rem;
+  margin: 0 0 0.85rem 0;
+  padding: 0.5rem 0.65rem;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  color: #78350f;
+  line-height: 1.45;
+  text-align: left;
+}
+.onboarding-dev-banner code {
+  font-size: 0.78em;
+  padding: 0.1em 0.35em;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+}
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+  margin: 0 0 0.25rem 0;
+}
+.onboarding-chip {
+  position: relative;
+  width: 100%;
+  display: block;
+  text-align: left;
+  padding: 1.05rem 1.2rem 1.05rem 1.35rem;
+  margin: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  font: inherit;
+  color: #4c1d95;
+  border: 1px solid #d8b4fe;
+  background: linear-gradient(180deg, #faf5ff 0%, #f3e8ff 45%, #ede9fe 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 5px 0 #c4b5fd,
+    0 8px 20px rgba(109, 40, 217, 0.14);
+  transform: translateY(0);
+  transition:
+    transform 0.1s cubic-bezier(0.22, 1, 0.32, 1),
+    box-shadow 0.1s cubic-bezier(0.22, 1, 0.32, 1),
+    border-color 0.18s ease,
+    background 0.2s ease,
+    color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.onboarding-chip::before {
+  content: '';
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  top: 4px;
+  height: 32%;
+  max-height: 1.35rem;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0) 100%);
+  pointer-events: none;
+}
+.onboarding-chip:hover {
+  border-color: #c084fc;
+  background: linear-gradient(180deg, #fdf4ff 0%, #f5e1ff 50%, #ede9fe 100%);
+  color: #5b21b6;
+}
+.onboarding-chip:active {
+  transform: translateY(4px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45) inset,
+    0 1px 0 #a78bfa,
+    0 3px 10px rgba(91, 33, 182, 0.2);
+}
+.onboarding-chip.active {
+  font-weight: 600;
+  color: #4c1d95;
+  border-color: #9333ea;
+  background: linear-gradient(180deg, #ede9fe 0%, #ddd6fe 55%, #d8b4fe 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.55) inset,
+    0 3px 0 #7c3aed,
+    0 6px 18px rgba(124, 58, 237, 0.28);
+}
+.onboarding-chip.active::before {
+  opacity: 0.55;
+}
+.onboarding-chip-title {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-size: 1.05rem;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+}
+@keyframes onboarding-key-tap {
+  0% {
+    transform: translateY(0) scale(1, 1);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.75) inset,
+      0 5px 0 #c4b5fd,
+      0 8px 20px rgba(109, 40, 217, 0.14);
+  }
+  28% {
+    transform: translateY(6px) scale(0.99, 0.96);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.35) inset,
+      0 0 0 #a78bfa,
+      0 2px 8px rgba(91, 33, 182, 0.22);
+  }
+  55% {
+    transform: translateY(-2px) scale(1.01, 1.02);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.8) inset,
+      0 6px 0 #c4b5fd,
+      0 10px 22px rgba(109, 40, 217, 0.18);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+.onboarding-chip.onboarding-chip--tap:not(.active) {
+  animation: onboarding-key-tap 0.4s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+}
+.onboarding-chip.onboarding-chip--tap.active {
+  animation: onboarding-key-tap-active 0.4s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+}
+@keyframes onboarding-key-tap-active {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  28% {
+    transform: translateY(5px) scale(0.99, 0.97);
+  }
+  55% {
+    transform: translateY(-2px) scale(1.008, 1.015);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+.onboarding-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.35rem;
+  padding-top: 0.25rem;
+}
+.onboarding-nav-spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-chip,
+  .onboarding-chip:active {
+    transition: none;
+  }
+  .onboarding-chip.onboarding-chip--tap,
+  .onboarding-chip.onboarding-chip--tap.active {
+    animation: none;
+  }
+}
+
 .header {
   background: #1a1a2e;
   color: #eee;
@@ -2481,6 +3354,10 @@ body {
 .header h1 {
   margin: 0 0 0.25rem 0;
   font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  color: #f8fafc;
 }
 .header .sub {
   margin: 0;
@@ -3135,8 +4012,9 @@ body {
   color: #0f172a;
 }
 .chat-line-user .chat-bubble {
-  background: #95ec69;
-  border-color: #86df5e;
+  background: #0a1428;
+  border-color: #0f1f3d;
+  color: #ffffff;
 }
 .system-card,
 .action-card {
@@ -3254,23 +4132,291 @@ body {
 .bottom-tabs {
   flex-shrink: 0;
   width: 100%;
-  height: 58px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   gap: 0;
-  border-top: 1px solid #dbeafe;
-  background: #ffffff;
+  margin: 0;
+  padding: 0 0 max(0px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #e8ecf0;
+  background: linear-gradient(180deg, #fcfcfd 0%, #fafafa 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 -3px 14px rgba(148, 163, 184, 0.05);
   z-index: 30;
+  box-sizing: border-box;
 }
 .tab-btn {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+  margin: 0;
+  padding: 0.68rem 0.42rem 0.82rem;
   border: none;
-  background: transparent;
-  font-size: 0.9rem;
+  border-right: 1px solid rgba(186, 198, 214, 0.45);
+  border-radius: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.25;
   color: #475569;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #fefefe 22%,
+    #fafbfc 55%,
+    #f6f7f9 100%
+  );
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 0 #e8e8ef,
+    0 3px 8px rgba(148, 163, 184, 0.07);
+  transform-origin: center bottom;
+  transition:
+    color 0.2s ease,
+    transform 0.09s cubic-bezier(0.22, 1, 0.32, 1),
+    background 0.2s ease,
+    box-shadow 0.09s cubic-bezier(0.22, 1, 0.32, 1);
+}
+/* 三键顶边与紫条均为直角；左侧淡线，键间分隔，底边与底栏融合不加线 */
+.tab-btn:first-child {
+  border-left: 1px solid rgba(186, 198, 214, 0.45);
+}
+.tab-btn:last-child {
+  border-right: none;
+}
+/* 淡紫光晕：按下触发 tab-btn--halo-burst，向左右铺开并逐渐透明（无松手回缩） */
+.tab-btn-press-halo {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 100%;
+  height: 2.15rem;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 1;
+  transform: translate(-50%, -50%) scaleX(0.08) scaleY(0.62);
+  transform-origin: center center;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 90% 100% at 50% 50%,
+    rgba(221, 214, 254, 0.5) 0%,
+    rgba(196, 181, 253, 0.28) 35%,
+    rgba(167, 139, 250, 0.1) 62%,
+    rgba(139, 92, 246, 0.02) 82%,
+    transparent 100%
+  );
+}
+.tab-btn.active .tab-btn-press-halo {
+  background: radial-gradient(
+    ellipse 90% 100% at 50% 50%,
+    rgba(221, 214, 254, 0.42) 0%,
+    rgba(196, 181, 253, 0.22) 38%,
+    rgba(167, 139, 250, 0.08) 65%,
+    rgba(124, 58, 237, 0.02) 85%,
+    transparent 100%
+  );
+}
+@keyframes tab-btn-halo-spread-fade {
+  0% {
+    transform: translate(-50%, -50%) scaleX(0.08) scaleY(0.62);
+    opacity: 0.58;
+  }
+  16% {
+    transform: translate(-50%, -50%) scaleX(1) scaleY(1);
+    opacity: 0.46;
+  }
+  48% {
+    transform: translate(-50%, -50%) scaleX(1.62) scaleY(1.08);
+    opacity: 0.2;
+  }
+  100% {
+    transform: translate(-50%, -50%) scaleX(2.15) scaleY(1.14);
+    opacity: 0;
+  }
+}
+.tab-btn--halo-burst .tab-btn-press-halo {
+  animation: tab-btn-halo-spread-fade 0.62s cubic-bezier(0.18, 0.82, 0.22, 1) forwards;
+}
+/* 顶缘纯色紫条 */
+.tab-btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  background: #8b5cf6;
+  transition:
+    opacity 0.2s ease,
+    background 0.15s ease,
+    top 0.09s ease,
+    height 0.09s ease;
+}
+.tab-btn.active::before {
+  opacity: 1;
+  background: #7c3aed;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 3px 10px rgba(124, 58, 237, 0.22);
+}
+.tab-btn:active::before {
+  opacity: 1;
+  background: #a78bfa;
+  top: 1px;
+  height: 2px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+.tab-btn.active:active::before {
+  background: #6d28d9;
+  top: 1px;
+  height: 2px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 6px rgba(91, 33, 182, 0.2);
+}
+/* 键内水波纹：自几何中心扩散，overflow:hidden 限制在键面内，淡淡紫、不向上窜 */
+.tab-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  height: 150%;
+  max-width: 280px;
+  max-height: 280px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  background: radial-gradient(
+    circle closest-side,
+    rgba(237, 233, 254, 0.45) 0%,
+    rgba(221, 214, 254, 0.28) 22%,
+    rgba(196, 181, 253, 0.16) 42%,
+    rgba(167, 139, 250, 0.08) 58%,
+    rgba(139, 92, 246, 0.03) 72%,
+    transparent 82%
+  );
+  transform: translate(-50%, -50%) scale(0.28);
+  transform-origin: center center;
+}
+.tab-btn--burst::after {
+  animation: tab-key-water-ripple 0.58s cubic-bezier(0.22, 0.82, 0.28, 1) forwards;
+}
+@keyframes tab-key-water-ripple {
+  0% {
+    opacity: 0.48;
+    transform: translate(-50%, -50%) scale(0.16);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+/* 点击松手后：轻微向上弹回，模拟琴键回弹 */
+@keyframes tab-key-rebound {
+  0% {
+    transform: translateY(0) scaleY(1);
+  }
+  42% {
+    transform: translateY(-2.5px) scaleY(1.012);
+  }
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+}
+.tab-btn--rebound {
+  animation: tab-key-rebound 0.34s cubic-bezier(0.28, 0.92, 0.32, 1.08) both;
+}
+.tab-btn--rebound:active {
+  animation: none;
+}
+.tab-btn:hover {
+  color: #334155;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #fcfcfd 30%,
+    #f8f9fb 100%
+  );
+  box-shadow:
+    inset 0 2px 5px rgba(255, 255, 255, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.62),
+    0 2px 0 #ececf2,
+    0 4px 12px rgba(148, 163, 184, 0.08);
+}
+.tab-btn:active {
+  /* 钢琴键：自底部略下沉 + 纵向微压，顶缘吃光、底缘贴床 */
+  transform: translateY(3px) scaleY(0.97);
+  box-shadow:
+    inset 0 5px 12px rgba(148, 163, 184, 0.07),
+    inset 0 2px 4px rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 #e2e2ea,
+    0 1px 4px rgba(148, 163, 184, 0.05);
 }
 .tab-btn.active {
-  color: #2563eb;
+  color: #5b21b6;
   font-weight: 600;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #fdfdff 35%,
+    #faf8ff 100%
+  );
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.98),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.58),
+    inset 0 -18px 28px -14px rgba(124, 58, 237, 0.04),
+    0 2px 0 #e6e0f4,
+    0 3px 10px rgba(124, 58, 237, 0.09);
+}
+.tab-btn.active:active {
+  box-shadow:
+    inset 0 5px 14px rgba(91, 33, 182, 0.06),
+    inset 0 2px 4px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4),
+    0 0 0 #ddd8ec,
+    0 1px 4px rgba(124, 58, 237, 0.06);
+}
+.tab-btn-label {
+  position: relative;
+  z-index: 4;
+  display: block;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-btn {
+    transition: color 0.15s ease;
+  }
+  .tab-btn:active {
+    transform: none;
+  }
+  .tab-btn--halo-burst .tab-btn-press-halo {
+    animation: none;
+    opacity: 0;
+  }
+  .tab-btn--burst::after {
+    animation: none;
+    opacity: 0 !important;
+  }
+  .tab-btn--rebound {
+    animation: none;
+  }
 }
 .task-list {
   margin: 0.4rem 0 0 1.2rem;

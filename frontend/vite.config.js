@@ -20,6 +20,11 @@ export default defineConfig({
   server: {
     port: DEV_PORT,
     proxy: {
+      // 与 api.js 中 checkBackendHealth() 使用的 /health 一致（未设置 VITE_PUBLIC_API_BASE 时为同源相对路径）
+      '/health': {
+        target: API_PROXY_TARGET,
+        changeOrigin: true,
+      },
       '/api': {
         target: API_PROXY_TARGET,
         changeOrigin: true,
