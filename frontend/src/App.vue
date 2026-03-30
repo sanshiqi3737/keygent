@@ -53,13 +53,6 @@
         </div>
       </section>
     </main>
-    <button
-      type="button"
-      class="login-intro-debug-btn"
-      @click="replayLoginIntroDebug"
-    >
-      调试：重放开屏动画
-    </button>
     </div>
 
     <template v-else>
@@ -91,7 +84,12 @@
           <Transition name="onboarding-slide" mode="out-in">
             <div :key="onboardingSlideIndex" class="onboarding-slide-inner">
               <div class="onboarding-visual" aria-hidden="true">
-                {{ onboardingSlides[onboardingSlideIndex].imageHint }}
+                <OnboardingVisualSlide1Welcome v-if="onboardingSlideIndex === 0" />
+                <OnboardingVisualSlide2Flow v-else-if="onboardingSlideIndex === 1" />
+                <OnboardingVisualSlide3Library v-else-if="onboardingSlideIndex === 2" />
+                <OnboardingVisualSlide4Score v-else-if="onboardingSlideIndex === 3" />
+                <OnboardingVisualSlide5AssistantProfile v-else-if="onboardingSlideIndex === 4" />
+                <template v-else>{{ onboardingSlides[onboardingSlideIndex].imageHint }}</template>
               </div>
               <h2 id="onboarding-slide-title" class="onboarding-slide-title">
                 {{ onboardingSlides[onboardingSlideIndex].title }}
@@ -901,18 +899,52 @@
     </main>
     </div>
     <nav v-if="routeMode === 'app'" class="bottom-tabs">
-      <button :class="['tab-btn', appTab === 'home' ? 'active' : '']" @click="goAppTab('home')">首页·曲库</button>
-      <button :class="['tab-btn', appTab === 'assistant' ? 'active' : '']" @click="goAppTab('assistant')">keygent</button>
-      <button :class="['tab-btn', appTab === 'profile' ? 'active' : '']" @click="goAppTab('profile')">个人主页</button>
+      <button
+        type="button"
+        :class="['tab-btn', appTab === 'home' ? 'active' : '']"
+        @click="goAppTab('home')"
+      >
+        <span class="tab-btn-inner">
+          <svg class="tab-btn-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M4 6h7v7H4V6zm9 0h7v4h-7V6zM4 15h7v3H4v-3zm9 3v-5h7v5h-7z"
+            />
+          </svg>
+          <span class="tab-btn-label">首页·曲库</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        :class="['tab-btn', appTab === 'assistant' ? 'active' : '']"
+        @click="goAppTab('assistant')"
+      >
+        <span class="tab-btn-inner">
+          <svg class="tab-btn-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M20 2H4a2 2 0 00-2 2v12a2 2 0 002 2h4v3l4-3h8a2 2 0 002-2V4a2 2 0 00-2-2z"
+            />
+          </svg>
+          <span class="tab-btn-label">keygent</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        :class="['tab-btn', appTab === 'profile' ? 'active' : '']"
+        @click="goAppTab('profile')"
+      >
+        <span class="tab-btn-inner">
+          <svg class="tab-btn-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 12a4 4 0 100-8 4 4 0 000 8zm-7 9a7 7 0 0114 0v1H5v-1z"
+            />
+          </svg>
+          <span class="tab-btn-label">个人主页</span>
+        </span>
+      </button>
     </nav>
-    <div class="app-debug-floating-actions">
-      <button type="button" class="login-intro-debug-btn" @click="openPostLoginQuestionnaireDebug">
-        调试：登录问卷
-      </button>
-      <button type="button" class="login-intro-debug-btn" @click="replayPostRegisterOnboardingDebug">
-        调试：播放引导幻灯片
-      </button>
-    </div>
     </div>
     </template>
   </div>
@@ -921,6 +953,11 @@
 <script setup>
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import PostLoginOnboarding from './components/post-login-onboarding/PostLoginOnboarding.vue'
+import OnboardingVisualSlide1Welcome from './components/onboarding-visuals/OnboardingVisualSlide1Welcome.vue'
+import OnboardingVisualSlide2Flow from './components/onboarding-visuals/OnboardingVisualSlide2Flow.vue'
+import OnboardingVisualSlide3Library from './components/onboarding-visuals/OnboardingVisualSlide3Library.vue'
+import OnboardingVisualSlide4Score from './components/onboarding-visuals/OnboardingVisualSlide4Score.vue'
+import OnboardingVisualSlide5AssistantProfile from './components/onboarding-visuals/OnboardingVisualSlide5AssistantProfile.vue'
 import {
   uploadScore,
   getScoreTechniques,
@@ -1116,22 +1153,10 @@ function onboardingNextOrFinish() {
   }
 }
 
-/** 页眉「帮助」与调试入口：打开引导幻灯片（不校验首次注册、不读 localStorage） */
+/** 页眉「帮助」：打开引导幻灯片（不校验首次注册、不读 localStorage） */
 function openHelpOnboarding() {
   onboardingSlideIndex.value = 0
   showPostRegisterOnboarding.value = true
-}
-
-function replayPostRegisterOnboardingDebug() {
-  if (!authToken.value) return
-  openHelpOnboarding()
-}
-
-/** 调试用：随时打开登录问卷，结束后不自动进入引导幻灯片 */
-function openPostLoginQuestionnaireDebug() {
-  if (!authToken.value) return
-  pendingSlidesAfterPostLoginQuestionnaire.value = false
-  showPostLoginQuestionnaire.value = true
 }
 
 /** 未登录开屏：prepare → splash（大图居中）→ fly（回卡片位）→ done；已登录为 done */
@@ -1161,29 +1186,20 @@ function finishLoginIntro() {
   /* 保留 slot / 卡片 min-height，避免动画结束撤掉占位后白盒高度跳变 */
 }
 
-/** 调试用：强制播完整开屏（忽略 prefers-reduced-motion） */
-function replayLoginIntroDebug() {
-  if (authToken.value) return
-  runLoginIntro({ force: true })
-}
-
-function runLoginIntro(opts = {}) {
-  const forceAnim = opts.force === true
+function runLoginIntro() {
   if (typeof window === 'undefined') return
   if (authToken.value) {
     finishLoginIntro()
     return
   }
-  if (!forceAnim) {
-    try {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        finishLoginIntro()
-        return
-      }
-    } catch {
+  try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       finishLoginIntro()
       return
     }
+  } catch {
+    finishLoginIntro()
+    return
   }
 
   clearLoginIntroTimers()
@@ -2793,43 +2809,6 @@ body {
     opacity 0.48s ease,
     transform 0.55s cubic-bezier(0.22, 1, 0.32, 1);
 }
-/* TODO: 开屏动画调完后删除 */
-.login-intro-debug-btn {
-  position: fixed;
-  left: 50%;
-  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  z-index: 200;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
-  color: #64748b;
-  background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
-  cursor: pointer;
-}
-.login-intro-debug-btn:hover {
-  color: #0f172a;
-  border-color: #94a3b8;
-}
-/* 已登录底栏 58px，调试按钮抬高避免遮挡 */
-.app-debug-floating-actions {
-  position: fixed;
-  left: 50%;
-  bottom: calc(58px + max(0.75rem, env(safe-area-inset-bottom, 0px)));
-  transform: translateX(-50%);
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
-  pointer-events: auto;
-}
-.app-debug-floating-actions .login-intro-debug-btn {
-  position: static;
-  transform: none;
-}
 .login-title {
   margin: 0 0 0.35rem 0;
   text-align: center;
@@ -4083,6 +4062,31 @@ body {
     inset 0 -1px 0 rgba(255, 255, 255, 0.4),
     0 0 0 #bfdbfe,
     0 1px 4px rgba(37, 99, 235, 0.07);
+}
+.tab-btn-inner {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  width: 100%;
+  pointer-events: none;
+}
+.tab-btn-ico {
+  display: block;
+  flex-shrink: 0;
+  opacity: 0.88;
+}
+.tab-btn.active .tab-btn-ico {
+  opacity: 1;
+}
+.tab-btn-label {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1.2;
+  text-align: center;
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-btn {
